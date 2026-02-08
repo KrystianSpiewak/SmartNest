@@ -34,6 +34,10 @@ ignore = [
     "TRY003",  # long exception messages (often necessary)
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "S106", "S105", "ARG002"]
+"scripts/**" = ["T20"]
+
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 

@@ -22,6 +22,15 @@ Quick reference for SmartNest project documentation and configuration.
 ### Scripts
 - [scripts/mqtt_validation_test.py](../scripts/mqtt_validation_test.py) - Broker connectivity test
 
+### Backend MQTT Module
+- [backend/mqtt/topics.py](../backend/mqtt/topics.py) - MQTT topic builder (TopicBuilder)
+- [backend/mqtt/config.py](../backend/mqtt/config.py) - MQTT connection configuration (MQTTConfig)
+- [backend/mqtt/client.py](../backend/mqtt/client.py) - Core MQTT client (SmartNestMQTTClient)
+
+### Tests
+- [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (79 tests)
+- [tests/integration/](../tests/integration/) - Integration tests against live broker (4 tests)
+
 ### Git Configuration
 - [.gitattributes](../.gitattributes) - Line ending configuration (LF)
 - [.editorconfig](../.editorconfig) - Editor consistency settings
@@ -86,14 +95,19 @@ Bypass (not recommended): `git commit --no-verify`
 - Configured in `.editorconfig`
 - Cross-platform compatible
 
-## Project Structure (Planned)
+## Project Structure
 
 ```
 SmartNest/
-├── backend/           # FastAPI REST API service
-├── tui/              # Terminal user interface
-├── devices/          # Mock IoT devices
+├── backend/           # Backend service
+│   ├── mqtt/         # MQTT client module
+│   │   ├── topics.py # Topic builder
+│   │   ├── config.py # Connection configuration
+│   │   └── client.py # SmartNestMQTTClient
+│   └── __init__.py
 ├── tests/            # Test suite
+│   ├── unit/mqtt/    # MQTT unit tests (79 tests, 100% coverage)
+│   └── integration/  # Integration tests (4 tests)
 ├── config/           # Configuration files
 ├── docs/             # Documentation (this directory)
 └── scripts/          # Utility scripts
@@ -129,5 +143,5 @@ SmartNest/
 
 ---
 
-**Last Updated:** February 7, 2026  
+**Last Updated:** February 8, 2026  
 **Project:** SmartNest Home Automation Management System
