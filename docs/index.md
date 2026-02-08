@@ -27,8 +27,15 @@ Quick reference for SmartNest project documentation and configuration.
 - [backend/mqtt/config.py](../backend/mqtt/config.py) - MQTT connection configuration (MQTTConfig)
 - [backend/mqtt/client.py](../backend/mqtt/client.py) - Core MQTT client (SmartNestMQTTClient)
 
+### Backend Logging Module
+- [backend/logging/config.py](../backend/logging/config.py) - Structured logging configuration (structlog, console/JSON renderers)
+- [backend/logging/catalog.py](../backend/logging/catalog.py) - Message catalog with stable codes (AIP-193-inspired)
+- [backend/logging/utils.py](../backend/logging/utils.py) - Correlation tracking and catalog-aware log helpers
+- [backend/logging/__init__.py](../backend/logging/__init__.py) - Public API (configure_logging, get_logger, MessageCode, log_with_code)
+
 ### Tests
 - [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (79 tests)
+- [tests/unit/logging/](../tests/unit/logging/) - Unit tests for logging module (19 tests)
 - [tests/integration/](../tests/integration/) - Integration tests against live broker (4 tests)
 
 ### Git Configuration
@@ -55,6 +62,11 @@ npm run format         # ruff format
 npm run typecheck      # mypy strict mode
 npm run test           # pytest
 npm run validate       # Full pipeline (lint + format + typecheck + test)
+
+# Mutation Testing (Week 6+)
+npm run test:mutation          # mutmut mutation testing
+npm run test:mutation:results  # View mutmut results
+npm run test:mutation:html     # Generate HTML report
 
 # MQTT
 npm run test:mqtt      # Validate MQTT connectivity
@@ -104,9 +116,14 @@ SmartNest/
 │   │   ├── topics.py # Topic builder
 │   │   ├── config.py # Connection configuration
 │   │   └── client.py # SmartNestMQTTClient
+│   ├── logging/      # Structured logging (structlog)
+│   │   ├── config.py # configure_logging, get_logger
+│   │   ├── catalog.py# Message catalog (MessageCode enum)
+│   │   └── utils.py  # Correlation tracking, log_with_code
 │   └── __init__.py
 ├── tests/            # Test suite
 │   ├── unit/mqtt/    # MQTT unit tests (79 tests, 100% coverage)
+│   ├── unit/logging/ # Logging unit tests (19 tests)
 │   └── integration/  # Integration tests (4 tests)
 ├── config/           # Configuration files
 ├── docs/             # Documentation (this directory)
@@ -143,5 +160,5 @@ SmartNest/
 
 ---
 
-**Last Updated:** February 8, 2026  
+**Last Updated:** February 9, 2026  
 **Project:** SmartNest Home Automation Management System

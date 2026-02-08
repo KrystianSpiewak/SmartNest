@@ -263,9 +263,7 @@ class TestClientCallbacks:
         on_connect(mock_paho, None, MagicMock(spec=ConnectFlags), reason, None)
         assert snc.is_connected is False
 
-    def test_on_disconnect_clears_connected(
-        self, mock_paho: MagicMock, config: MQTTConfig
-    ) -> None:
+    def test_on_disconnect_clears_connected(self, mock_paho: MagicMock, config: MQTTConfig) -> None:
         with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
             snc = SmartNestMQTTClient(config)
         snc.set_connected_for_test()

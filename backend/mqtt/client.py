@@ -5,7 +5,7 @@ Synchronous MQTT client wrapping Paho MQTT v2.  Provides:
 - Automatic reconnection via Paho's ``reconnect_delay_set()``
 - Last Will and Testament (LWT) for device status
 - Per-topic callback routing via ``message_callback_add()``
-- Structured logging
+- Structured JSON logging via ``structlog`` with message catalog codes
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 
+from backend.logging import MessageCode, get_logger, log_with_code
 from backend.mqtt.topics import TopicBuilder
 
 if TYPE_CHECKING:
@@ -28,7 +29,10 @@ if TYPE_CHECKING:
 
     from backend.mqtt.config import MQTTConfig
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# stdlib logger kept for Paho's internal enable_logger()
+_paho_logger = logging.getLogger(f"{__name__}.paho")
 
 # Default connect timeout in seconds
 _CONNECT_TIMEOUT = 10.0
@@ -74,8 +78,8 @@ class SmartNestMQTTClient:
         self._paho.on_disconnect = self._on_disconnect
         self._paho.on_message = self._on_message
 
-        # Route Paho internal logs through Python logging
-        self._paho.enable_logger(logger)
+        # Route Paho internal logs through stdlib logging
+        self._paho.enable_logger(_paho_logger)
 
         # Configure native exponential-backoff reconnection
         self._paho.reconnect_delay_set(
@@ -131,15 +135,17 @@ class SmartNestMQTTClient:
     ) -> None:
         """Handle successful or failed connection."""
         if reason_code == 0:
-            logger.info(
-                "Connected to MQTT broker %s:%d as %s",
-                self._config.broker,
-                self._config.port,
-                self._config.client_id,
+            log_with_code(
+                logger,
+                "info",
+                MessageCode.MQTT_CONNECTION_SUCCESS,
+                broker=self._config.broker,
+                port=self._config.port,
+                client_id=self._config.client_id,
             )
             self._connected.set()
         else:
-            logger.error("Connection refused: %s", reason_code)
+            logger.error("connection_refused", reason_code=str(reason_code))
             self._connected.clear()
 
     def _on_disconnect(
@@ -153,11 +159,13 @@ class SmartNestMQTTClient:
         """Handle broker disconnection."""
         self._connected.clear()
         if reason_code == 0:
-            logger.info("Disconnected cleanly from broker")
+            log_with_code(logger, "info", MessageCode.MQTT_DISCONNECTED_CLEAN)
         else:
-            logger.warning(
-                "Unexpected disconnect from broker (reason=%s). Paho will auto-reconnect.",
-                reason_code,
+            log_with_code(
+                logger,
+                "warning",
+                MessageCode.MQTT_DISCONNECTED_UNEXPECTED,
+                reason=str(reason_code),
             )
 
     def _on_message(
@@ -167,12 +175,14 @@ class SmartNestMQTTClient:
         message: mqtt.MQTTMessage,
     ) -> None:
         """Catch-all handler for messages without a per-topic callback."""
-        logger.debug(
-            "Unhandled message on %s (qos=%d, retain=%s): %s",
-            message.topic,
-            message.qos,
-            message.retain,
-            message.payload.decode("utf-8", errors="replace")[:200],
+        log_with_code(
+            logger,
+            "debug",
+            MessageCode.MQTT_MESSAGE_UNHANDLED,
+            topic=message.topic,
+            qos=message.qos,
+            retain=message.retain,
+            payload=message.payload.decode("utf-8", errors="replace")[:200],
         )
 
     # -- Public API ------------------------------------------------------------
@@ -185,11 +195,13 @@ class SmartNestMQTTClient:
         Returns:
             ``True`` if connected within the timeout, ``False`` otherwise.
         """
-        logger.info(
-            "Connecting to %s:%d (timeout=%.1fs) ...",
-            self._config.broker,
-            self._config.port,
-            timeout,
+        log_with_code(
+            logger,
+            "info",
+            MessageCode.MQTT_CONNECTION_INITIATED,
+            broker=self._config.broker,
+            port=self._config.port,
+            client_id=self._config.client_id,
         )
         try:
             self._paho.connect(
@@ -198,13 +210,18 @@ class SmartNestMQTTClient:
                 keepalive=self._config.keepalive,
             )
         except OSError:
-            logger.exception("Failed to initiate connection")
+            logger.exception("connection_initiation_failed")
             return False
 
         self._paho.loop_start()
 
         if not self._connected.wait(timeout=timeout):
-            logger.error("Connection timed out after %.1fs", timeout)
+            log_with_code(
+                logger,
+                "error",
+                MessageCode.MQTT_CONNECTION_TIMEOUT,
+                timeout=timeout,
+            )
             self._paho.loop_stop()
             return False
 
@@ -212,7 +229,7 @@ class SmartNestMQTTClient:
 
     def disconnect(self) -> None:
         """Disconnect from broker and stop the network loop."""
-        logger.info("Disconnecting from broker ...")
+        logger.info("disconnecting")
         self._paho.loop_stop()
         self._paho.disconnect()
         self._connected.clear()
@@ -237,16 +254,29 @@ class SmartNestMQTTClient:
             ``True`` if the message was enqueued successfully.
         """
         if not self.is_connected:
-            logger.error("Cannot publish: not connected")
+            log_with_code(logger, "error", MessageCode.MQTT_PUBLISH_NOT_CONNECTED)
             return False
 
         data = json.dumps(payload)
         result = self._paho.publish(topic, data, qos=qos, retain=retain)
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            logger.error("Publish failed on %s (rc=%d)", topic, result.rc)
+            log_with_code(
+                logger,
+                "error",
+                MessageCode.MQTT_PUBLISH_FAILED,
+                topic=topic,
+                rc=result.rc,
+            )
             return False
 
-        logger.debug("Published to %s (qos=%d, retain=%s)", topic, qos, retain)
+        log_with_code(
+            logger,
+            "debug",
+            MessageCode.MQTT_PUBLISH_SUCCESS,
+            topic=topic,
+            qos=qos,
+            retain=retain,
+        )
         return True
 
     def subscribe(self, topic: str, qos: int = 1) -> bool:
@@ -260,15 +290,27 @@ class SmartNestMQTTClient:
             ``True`` if the subscription was enqueued.
         """
         if not self.is_connected:
-            logger.error("Cannot subscribe: not connected")
+            log_with_code(logger, "error", MessageCode.MQTT_SUBSCRIBE_NOT_CONNECTED)
             return False
 
         result, _mid = self._paho.subscribe(topic, qos=qos)
         if result != mqtt.MQTT_ERR_SUCCESS:
-            logger.error("Subscribe failed for %s (rc=%d)", topic, result)
+            log_with_code(
+                logger,
+                "error",
+                MessageCode.MQTT_SUBSCRIBE_FAILED,
+                topic=topic,
+                rc=result,
+            )
             return False
 
-        logger.info("Subscribed to %s (qos=%d)", topic, qos)
+        log_with_code(
+            logger,
+            "info",
+            MessageCode.MQTT_SUBSCRIBE_SUCCESS,
+            topic=topic,
+            qos=qos,
+        )
         return True
 
     def add_topic_handler(self, topic_filter: str, handler: MessageHandler) -> None:
@@ -282,7 +324,12 @@ class SmartNestMQTTClient:
             handler: Callback matching the ``MessageHandler`` protocol.
         """
         self._paho.message_callback_add(topic_filter, handler)
-        logger.info("Registered handler for topic filter: %s", topic_filter)
+        log_with_code(
+            logger,
+            "info",
+            MessageCode.MQTT_HANDLER_REGISTERED,
+            topic_filter=topic_filter,
+        )
 
     def remove_topic_handler(self, topic_filter: str) -> None:
         """Remove a previously registered per-topic callback.
@@ -292,7 +339,12 @@ class SmartNestMQTTClient:
                 :meth:`add_topic_handler`.
         """
         self._paho.message_callback_remove(topic_filter)
-        logger.debug("Removed handler for topic filter: %s", topic_filter)
+        log_with_code(
+            logger,
+            "debug",
+            MessageCode.MQTT_HANDLER_REMOVED,
+            topic_filter=topic_filter,
+        )
 
     def publish_device_state(
         self,

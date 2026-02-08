@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
+from backend.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Validation constants
 _PORT_MIN = 1

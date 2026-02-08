@@ -26,6 +26,9 @@
     "typecheck": ".venv\\Scripts\\mypy backend/",
     "check": "npm run lint && npm run format:check && npm run typecheck",
     "check:fix": "npm run lint:fix && npm run format && npm run typecheck",
-    "ci": "npm run check && npm run test"
+    "ci": "npm run check && npm run test",
+    "test:mutation": ".venv\\Scripts\\mutmut run",
+    "test:mutation:results": ".venv\\Scripts\\mutmut results",
+    "test:mutation:html": ".venv\\Scripts\\mutmut html"
   }
 }
