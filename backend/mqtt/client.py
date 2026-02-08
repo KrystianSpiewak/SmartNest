@@ -10,7 +10,6 @@ Synchronous MQTT client wrapping Paho MQTT v2.  Provides:
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import threading
@@ -37,6 +36,11 @@ _paho_logger = logging.getLogger(f"{__name__}.paho")
 
 # Default connect timeout in seconds
 _CONNECT_TIMEOUT = 10.0
+
+# LWT message constants
+_LWT_EVENT_TYPE = "client_offline"
+_LWT_EVENT_KEY = "event"
+_LWT_CLIENT_ID_KEY = "client_id"
 
 
 class MessageHandler(Protocol):
@@ -94,11 +98,11 @@ class SmartNestMQTTClient:
 
         # LWT: mark this client offline if it drops unexpectedly
         self._paho.will_set(
-            topic=TopicBuilder.system_topic("event"),
+            topic=TopicBuilder.system_topic(),  # Uses default "event" topic
             payload=json.dumps(
                 {
-                    "event": "client_offline",
-                    "client_id": config.client_id,
+                    _LWT_EVENT_KEY: _LWT_EVENT_TYPE,
+                    _LWT_CLIENT_ID_KEY: config.client_id,
                 }
             ),
             qos=1,
@@ -146,9 +150,14 @@ class SmartNestMQTTClient:
             )
             self._connected.set()
         else:
-            with contextlib.suppress(OSError, ValueError):
-                logger.error("connection_refused", reason_code=str(reason_code))
+            # Clear state first (critical path)
             self._connected.clear()
+            # Then attempt logging (may fail during shutdown)
+            try:
+                logger.error("connection_refused", reason_code=str(reason_code))
+            except (OSError, ValueError):
+                # Suppress logging errors during shutdown - state already cleared
+                pass
 
     def _on_disconnect(
         self,
@@ -212,8 +221,12 @@ class SmartNestMQTTClient:
                 keepalive=self._config.keepalive,
             )
         except OSError:
-            with contextlib.suppress(OSError, ValueError):
+            # Log error for troubleshooting, but suppress logging failures
+            try:
                 logger.exception("connection_initiation_failed")
+            except (OSError, ValueError):
+                # Suppress logging errors - connection already failed
+                pass
             return False
 
         self._paho.loop_start()
@@ -232,8 +245,13 @@ class SmartNestMQTTClient:
 
     def disconnect(self) -> None:
         """Disconnect from broker and stop the network loop."""
-        with contextlib.suppress(OSError, ValueError):
+        # Log before stopping (may fail if logging infrastructure shutting down)
+        try:
             logger.info("disconnecting")
+        except (OSError, ValueError):
+            # Suppress logging errors during shutdown
+            pass
+
         self._paho.loop_stop()
         self._paho.disconnect()
         self._connected.clear()

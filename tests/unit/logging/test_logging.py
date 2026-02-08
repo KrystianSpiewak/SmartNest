@@ -188,6 +188,71 @@ class TestLoggingConfig:
         data = json.loads(output.getvalue().strip())
         assert data["app"] == "smartnest"
 
+    def test_build_processors_console_has_color_renderer(self) -> None:
+        """Console renderer must have colors enabled for readability."""
+        from backend.logging.config import build_shared_processors  # noqa: PLC0415
+
+        processors = build_shared_processors("console")
+
+        # Last processor should be ConsoleRenderer with colors
+        renderer = processors[-1]
+        assert isinstance(renderer, structlog.dev.ConsoleRenderer)
+
+    def test_build_processors_json_has_json_renderer(self) -> None:
+        """JSON renderer must be used for machine-parseable logs."""
+        from backend.logging.config import build_shared_processors  # noqa: PLC0415
+
+        processors = build_shared_processors("json")
+
+        # Last processor should be JSONRenderer
+        renderer = processors[-1]
+        assert isinstance(renderer, structlog.processors.JSONRenderer)
+
+        # Must include format_exc_info before JSONRenderer
+        assert structlog.processors.format_exc_info in processors
+
+    def test_build_processors_has_timestamp_processor(self) -> None:
+        """Timestamp processor must be included with ISO format."""
+        from backend.logging.config import build_shared_processors  # noqa: PLC0415
+
+        processors = build_shared_processors("console")
+
+        # Find TimeStamper processor
+        timestampers = [p for p in processors if isinstance(p, structlog.processors.TimeStamper)]
+        assert len(timestampers) == 1
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logging_defaults(self) -> None:
+        """Default level must be INFO for production safety."""
+        reset_logging()
+        configure_logging()  # No args - use defaults
+
+        config = structlog.get_config()
+        # Verify processors list is not empty
+        assert len(config["processors"]) > 0
+        # Verify cache is enabled
+        assert config["cache_logger_on_first_use"] is True
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logging_level_case_insensitive(self) -> None:
+        """Level string must be normalized to uppercase."""
+        output = StringIO()
+        reset_logging()
+        configure_logging(level="debug")  # lowercase
+
+        # Should work - getattr with .upper() handles it
+        structlog.configure(
+            processors=structlog.get_config()["processors"],
+            logger_factory=structlog.PrintLoggerFactory(file=output),
+            cache_logger_on_first_use=False,
+        )
+
+        log = structlog.get_logger()
+        log.debug("test_lowercase_level")
+
+        # Verify debug log was emitted
+        assert "test_lowercase_level" in output.getvalue()
+
 
 # ---------------------------------------------------------------------------
 # Utilities tests

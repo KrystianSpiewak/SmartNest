@@ -32,6 +32,7 @@ ignore = [
     "S101",    # assert usage (OK in tests)
     "PLR0913", # too many arguments (can be overly strict)
     "TRY003",  # long exception messages (often necessary)
+    "SIM105",  # try-except-pass vs contextlib.suppress (explicit is better for testability)
 ]
 
 [tool.ruff.lint.per-file-ignores]

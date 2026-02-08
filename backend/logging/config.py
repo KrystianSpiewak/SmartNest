@@ -49,6 +49,38 @@ def _add_app_context(
     return event_dict
 
 
+def build_shared_processors(renderer: str) -> list[structlog.types.Processor]:
+    """Build processor list based on renderer type (pure function).
+
+    Extracting this as a pure function makes configuration testable
+    and kills multiple mutation testing survivors.
+
+    Args:
+        renderer: Output format ("console" or "json").
+
+    Returns:
+        List of structlog processors including the final renderer.
+    """
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        _add_app_context,
+    ]
+
+    if renderer == "json":
+        shared_processors.append(structlog.processors.format_exc_info)
+        final_processor: structlog.types.Processor = structlog.processors.JSONRenderer()
+    else:
+        final_processor = structlog.dev.ConsoleRenderer(
+            colors=True,
+        )
+
+    shared_processors.append(final_processor)
+    return shared_processors
+
+
 def configure_logging(
     *,
     level: str = "INFO",
@@ -77,24 +109,7 @@ def configure_logging(
         force=True,
     )
 
-    # Shared processors (order matters)
-    shared_processors: list[structlog.types.Processor] = [
-        structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        _add_app_context,
-    ]
-
-    if renderer == "json":
-        shared_processors.append(structlog.processors.format_exc_info)
-        final_processor: structlog.types.Processor = structlog.processors.JSONRenderer()
-    else:
-        final_processor = structlog.dev.ConsoleRenderer(
-            colors=True,
-        )
-
-    shared_processors.append(final_processor)
+    shared_processors = build_shared_processors(renderer)
 
     structlog.configure(
         processors=shared_processors,
