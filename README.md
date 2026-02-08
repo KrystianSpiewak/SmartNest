@@ -101,6 +101,7 @@ npm run docker:down    # Stop broker
 - [ ] Unit test coverage 80%+
 - [ ] Integration tests
 - [ ] End-to-end tests
+- [ ] Mutation testing (requires WSL on Windows)
 - [ ] Load testing
 
 ### Phase 7: Deployment
@@ -198,6 +199,7 @@ Educational project for Champlain College SDEV435 course.
 - [pytest Documentation](https://docs.pytest.org/)
 - [Ruff Linter & Formatter](https://docs.astral.sh/ruff/)
 - [mypy Type Checker](https://mypy.readthedocs.io/)
+- [mutmut Mutation Testing](https://mutmut.readthedocs.io/) (requires WSL on Windows)
 
 ---
 

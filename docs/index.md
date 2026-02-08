@@ -69,6 +69,9 @@ npm run test           # pytest
 npm run validate       # Full pipeline (lint + format + typecheck + test)
 
 # Mutation Testing (Week 6+)
+# Windows: Requires WSL2 (mutmut uses Unix process management)
+# Installation: wsl --install (Windows 10 2004+ or Windows 11)
+# Run from WSL: cd /mnt/d/Programowanie/College/Champlain/SDEV435/SmartNest
 npm run test:mutation          # mutmut mutation testing
 npm run test:mutation:results  # View mutmut results
 npm run test:mutation:html     # Generate HTML report

@@ -16,5 +16,8 @@ ruff>=0.15.0
 # Type Checking
 mypy>=1.19.0
 
-# Mutation Testing (requires WSL on Windows)
+# Mutation Testing
+# Windows: mutmut requires WSL2 due to Unix process management (fork, setproctitle)
+# Installation: wsl --install (Windows 10 2004+ or Windows 11)
+# Run from WSL: cd /mnt/d/.../SmartNest && pip install -r requirements/dev.txt
 mutmut>=3.4.0
