@@ -37,10 +37,10 @@ _paho_logger = logging.getLogger(f"{__name__}.paho")
 # Default connect timeout in seconds
 _CONNECT_TIMEOUT = 10.0
 
-# LWT message constants
-_LWT_EVENT_TYPE = "client_offline"
-_LWT_EVENT_KEY = "event"
-_LWT_CLIENT_ID_KEY = "client_id"
+# LWT (Last Will Testament) message constants - public for testing
+LWT_EVENT_TYPE = "client_offline"
+LWT_EVENT_KEY = "event"
+LWT_CLIENT_ID_KEY = "client_id"
 
 
 class MessageHandler(Protocol):
@@ -101,8 +101,8 @@ class SmartNestMQTTClient:
             topic=TopicBuilder.system_topic(),  # Uses default "event" topic
             payload=json.dumps(
                 {
-                    _LWT_EVENT_KEY: _LWT_EVENT_TYPE,
-                    _LWT_CLIENT_ID_KEY: config.client_id,
+                    LWT_EVENT_KEY: LWT_EVENT_TYPE,
+                    LWT_CLIENT_ID_KEY: config.client_id,
                 }
             ),
             qos=1,

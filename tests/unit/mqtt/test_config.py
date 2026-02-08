@@ -137,7 +137,7 @@ class TestMQTTConfigValidation:
     def test_frozen_model_prevents_mutation(self) -> None:
         cfg = MQTTConfig()
         with pytest.raises(ValidationError):
-            cfg.broker = "other"  # type: ignore[misc]
+            cfg.broker = "other"
 
     def test_type_coercion_string_port(self) -> None:
         """Pydantic coerces compatible types."""

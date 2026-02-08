@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from io import StringIO
-from unittest.mock import MagicMock
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import pytest
 import structlog
@@ -12,6 +14,9 @@ from structlog.contextvars import clear_contextvars
 
 from backend.logging.catalog import MessageCode, format_message
 from backend.logging.config import configure_logging, get_logger, reset_logging
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 from backend.logging.utils import (
     end_operation,
     generate_correlation_id,
@@ -27,7 +32,7 @@ def _clean_contextvars() -> None:  # pyright: ignore[reportUnusedFunction]
 
 
 @pytest.fixture
-def _reset_structlog():  # pyright: ignore[reportUnusedFunction]
+def _reset_structlog() -> Generator[None]:  # pyright: ignore[reportUnusedFunction]
     """Reset structlog config after test (used by config tests)."""
     yield
     reset_logging()
@@ -194,9 +199,11 @@ class TestLoggingConfig:
 
         processors = build_shared_processors("console")
 
-        # Last processor should be ConsoleRenderer with colors
+        # Last processor should be ConsoleRenderer (colors enabled by default)
         renderer = processors[-1]
         assert isinstance(renderer, structlog.dev.ConsoleRenderer)
+        # Note: Not checking _colors (protected attribute). Integration tests
+        # verify colored output behavior instead.
 
     def test_build_processors_json_has_json_renderer(self) -> None:
         """JSON renderer must be used for machine-parseable logs."""
@@ -217,19 +224,29 @@ class TestLoggingConfig:
 
         processors = build_shared_processors("console")
 
-        # Find TimeStamper processor
+        # Find TimeStamper processor and verify ISO format
         timestampers = [p for p in processors if isinstance(p, structlog.processors.TimeStamper)]
         assert len(timestampers) == 1
+        # Verify the TimeStamper uses "iso" format
+        assert timestampers[0].fmt == "iso"
 
     @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_logging_defaults(self) -> None:
         """Default level must be INFO for production safety."""
         reset_logging()
-        configure_logging()  # No args - use defaults
+
+        # Patch logging.basicConfig to verify default level
+        with patch("backend.logging.config.logging.basicConfig") as mock_basic:
+            configure_logging()  # No args - use defaults
+
+            # Verify INFO level was used (not DEBUG)
+            mock_basic.assert_called_once()
+            call_kwargs = mock_basic.call_args.kwargs
+            assert call_kwargs["level"] == logging.INFO
+            assert call_kwargs["format"] == "%(message)s"
+            assert call_kwargs["force"] is True
 
         config = structlog.get_config()
-        # Verify processors list is not empty
-        assert len(config["processors"]) > 0
         # Verify cache is enabled
         assert config["cache_logger_on_first_use"] is True
 

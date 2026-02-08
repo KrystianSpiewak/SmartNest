@@ -11,7 +11,8 @@ from paho.mqtt.client import ConnectFlags, DisconnectFlags
 from paho.mqtt.enums import CallbackAPIVersion
 from paho.mqtt.reasoncodes import ReasonCode
 
-from backend.mqtt.client import SmartNestMQTTClient
+from backend.logging.catalog import MessageCode
+from backend.mqtt.client import SmartNestMQTTClient, logger
 from backend.mqtt.config import MQTTConfig
 
 
@@ -93,15 +94,15 @@ class TestClientInit:
     def test_lwt_constants_match_schema(self) -> None:
         """LWT event type constants must match system event schema."""
         from backend.mqtt.client import (  # noqa: PLC0415
-            _LWT_CLIENT_ID_KEY,
-            _LWT_EVENT_KEY,
-            _LWT_EVENT_TYPE,
+            LWT_CLIENT_ID_KEY,
+            LWT_EVENT_KEY,
+            LWT_EVENT_TYPE,
         )
 
         # Verify constants have expected values
-        assert _LWT_EVENT_TYPE == "client_offline"
-        assert _LWT_EVENT_KEY == "event"
-        assert _LWT_CLIENT_ID_KEY == "client_id"
+        assert LWT_EVENT_TYPE == "client_offline"
+        assert LWT_EVENT_KEY == "event"
+        assert LWT_CLIENT_ID_KEY == "client_id"
 
 
 class TestClientProperties:
@@ -137,11 +138,15 @@ class TestClientConnect:
         with patch("backend.mqtt.client.log_with_code") as mock_log:
             result = client.connect(timeout=1.0)
 
-            # Verify log_with_code was called with connection details
-            mock_log.assert_called()
-            # Check that broker details are passed to log
-            calls = [call for call in mock_log.call_args_list]
-            assert any("broker" in str(call) for call in calls)
+            # Verify log_with_code was called with exact connection details
+            mock_log.assert_any_call(
+                logger,
+                "info",
+                MessageCode.MQTT_CONNECTION_INITIATED,
+                broker="localhost",
+                port=1883,
+                client_id="test_client",
+            )
 
         assert result is True
         mock_paho.connect.assert_called_once_with("localhost", 1883, keepalive=60)
@@ -151,13 +156,16 @@ class TestClientConnect:
         self, client: SmartNestMQTTClient, mock_paho: MagicMock
     ) -> None:
         """Connection timeout must log timeout value for troubleshooting."""
-        with patch("backend.mqtt.client.logger.error") as mock_error:
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
             result = client.connect(timeout=0.1)
 
-            # Verify timeout error was logged
-            mock_error.assert_called()
-            # Check that timeout value is in the call
-            assert any("timeout" in str(call) for call in mock_error.call_args_list)
+            # Verify timeout was logged with exact timeout value
+            mock_log.assert_any_call(
+                logger,
+                "error",
+                MessageCode.MQTT_CONNECTION_TIMEOUT,
+                timeout=0.1,
+            )
 
         assert result is False
 
@@ -176,6 +184,22 @@ class TestClientConnect:
         assert result is False
         mock_paho.loop_start.assert_not_called()
 
+    def test_connect_handles_logging_exception(
+        self, client: SmartNestMQTTClient, mock_paho: MagicMock
+    ) -> None:
+        """OSError during connect must handle logging exceptions gracefully."""
+        mock_paho.connect.side_effect = OSError("Connection refused")
+
+        # Make logger.exception raise ValueError to test exception handler
+        with patch(
+            "backend.mqtt.client.logger.exception", side_effect=ValueError("Logging failed")
+        ):
+            result = client.connect(timeout=0.1)
+
+        # Should still return False despite logging error
+        assert result is False
+        mock_paho.loop_start.assert_not_called()
+
 
 class TestClientDisconnect:
     """Tests for SmartNestMQTTClient.disconnect()."""
@@ -189,9 +213,24 @@ class TestClientDisconnect:
         with patch("backend.mqtt.client.logger.info") as mock_info:
             client.disconnect()
 
-            # Verify disconnect was logged
+            # Verify disconnect was logged with exact message
             mock_info.assert_called_once_with("disconnecting")
 
+        mock_paho.loop_stop.assert_called_once()
+        mock_paho.disconnect.assert_called_once()
+        assert client.is_connected is False
+
+    def test_disconnect_handles_logging_exception(
+        self, client: SmartNestMQTTClient, mock_paho: MagicMock
+    ) -> None:
+        """Disconnect must handle logging exceptions gracefully."""
+        client.set_connected_for_test()
+
+        # Make logger.info raise OSError to test exception handler
+        with patch("backend.mqtt.client.logger.info", side_effect=OSError("Logging failed")):
+            client.disconnect()
+
+        # Should still complete disconnect despite logging error
         mock_paho.loop_stop.assert_called_once()
         mock_paho.disconnect.assert_called_once()
         assert client.is_connected is False
@@ -206,11 +245,18 @@ class TestClientPublish:
         """Publish success must log topic, QoS, and retain for debugging."""
         client.set_connected_for_test()
 
-        with patch("backend.mqtt.client.logger.debug") as mock_debug:
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
             result = client.publish("smartnest/test", {"key": "value"})
 
-            # Verify debug log contains topic
-            assert any("smartnest/test" in str(call) for call in mock_debug.call_args_list)
+            # Verify publish success logged with exact parameters
+            mock_log.assert_any_call(
+                logger,
+                "debug",
+                MessageCode.MQTT_PUBLISH_SUCCESS,
+                topic="smartnest/test",
+                qos=1,
+                retain=False,
+            )
 
         assert result is True
         mock_paho.publish.assert_called_once_with(
@@ -238,12 +284,17 @@ class TestClientPublish:
         client.set_connected_for_test()
         mock_paho.publish.return_value = MagicMock(rc=mqtt.MQTT_ERR_NO_CONN)
 
-        with patch("backend.mqtt.client.logger.error") as mock_error:
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
             result = client.publish("t", {"x": 1})
 
-            # Verify error was logged with topic
-            mock_error.assert_called()
-            assert any("topic" in str(call) for call in mock_error.call_args_list)
+            # Verify publish failure logged with exact parameters
+            mock_log.assert_any_call(
+                logger,
+                "error",
+                MessageCode.MQTT_PUBLISH_FAILED,
+                topic="t",
+                rc=mqtt.MQTT_ERR_NO_CONN,
+            )
 
         assert result is False
 
@@ -254,23 +305,62 @@ class TestClientSubscribe:
     def test_subscribe_when_connected(
         self, client: SmartNestMQTTClient, mock_paho: MagicMock
     ) -> None:
+        """Successful subscription must log topic and QoS."""
         client.set_connected_for_test()
-        result = client.subscribe("smartnest/device/+/state", qos=1)
-        assert result is True
+        mock_paho.subscribe.return_value = (mqtt.MQTT_ERR_SUCCESS, 1)
+
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            result = client.subscribe("smartnest/device/+/state", qos=1)
+
+            assert result is True
+            mock_paho.subscribe.assert_called_once_with("smartnest/device/+/state", qos=1)
+
+            # Verify subscription success logged with exact parameters
+            mock_log.assert_called_once_with(
+                logger,
+                "info",
+                MessageCode.MQTT_SUBSCRIBE_SUCCESS,
+                topic="smartnest/device/+/state",
+                qos=1,
+            )
 
     def test_subscribe_when_not_connected(
         self, client: SmartNestMQTTClient, mock_paho: MagicMock
     ) -> None:
+        """Subscribe when not connected must return False."""
         result = client.subscribe("smartnest/device/+/state")
         assert result is False
+        mock_paho.subscribe.assert_not_called()
 
     def test_subscribe_failure_returns_false(
         self, client: SmartNestMQTTClient, mock_paho: MagicMock
     ) -> None:
+        """Failed subscription must log error with reason code."""
         client.set_connected_for_test()
         mock_paho.subscribe.return_value = (mqtt.MQTT_ERR_NO_CONN, None)
-        result = client.subscribe("t")
-        assert result is False
+
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            result = client.subscribe("t")
+
+            assert result is False
+
+            # Verify subscription failure logged with exact parameters
+            mock_log.assert_called_once_with(
+                logger,
+                "error",
+                MessageCode.MQTT_SUBSCRIBE_FAILED,
+                topic="t",
+                rc=mqtt.MQTT_ERR_NO_CONN,
+            )
+
+    def test_subscribe_default_qos(self, client: SmartNestMQTTClient, mock_paho: MagicMock) -> None:
+        """Subscribe must use QoS 1 by default."""
+        client.set_connected_for_test()
+        mock_paho.subscribe.return_value = (mqtt.MQTT_ERR_SUCCESS, 1)
+
+        client.subscribe("test/topic")  # No qos parameter
+
+        mock_paho.subscribe.assert_called_once_with("test/topic", qos=1)
 
 
 class TestClientTopicHandlers:
@@ -403,10 +493,15 @@ class TestClientCallbacks:
             reason = ReasonCode(mqtt.CONNACK >> 4, identifier=0)
             on_connect(mock_paho, None, MagicMock(spec=ConnectFlags), reason, None)
 
-            # Verify connection success logged with broker details
-            mock_log.assert_called()
-            call_kwargs = [call[1] for call in mock_log.call_args_list]
-            assert any("broker" in kwargs for kwargs in call_kwargs)
+            # Verify connection success logged with exact parameters
+            mock_log.assert_called_once_with(
+                logger,
+                "info",
+                MessageCode.MQTT_CONNECTION_SUCCESS,
+                broker="localhost",
+                port=1883,
+                client_id="test_client",
+            )
 
         assert snc.is_connected is True
 
@@ -437,6 +532,23 @@ class TestClientCallbacks:
         on_disconnect(mock_paho, None, MagicMock(spec=DisconnectFlags), reason, None)
         assert snc.is_connected is False
 
+    def test_on_connect_failure_handles_logging_exception(
+        self, mock_paho: MagicMock, config: MQTTConfig
+    ) -> None:
+        """Connection failure path must handle logging exceptions gracefully."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            snc = SmartNestMQTTClient(config)
+        snc.set_connected_for_test()
+
+        # Make logger.error raise OSError to test exception handler
+        with patch("backend.mqtt.client.logger.error", side_effect=OSError("Logging failed")):
+            on_connect = mock_paho.on_connect
+            reason = ReasonCode(mqtt.CONNACK >> 4, identifier=0x87)
+            on_connect(mock_paho, None, MagicMock(spec=ConnectFlags), reason, None)
+
+        # State should still be cleared despite logging error
+        assert snc.is_connected is False
+
     def test_on_unexpected_disconnect_clears_connected(
         self, mock_paho: MagicMock, config: MQTTConfig
     ) -> None:
@@ -450,10 +562,35 @@ class TestClientCallbacks:
             reason = ReasonCode(mqtt.DISCONNECT >> 4, identifier=0x8E)
             on_disconnect(mock_paho, None, MagicMock(spec=DisconnectFlags), reason, None)
 
-            # Verify warning logged with reason
-            mock_log.assert_called()
-            call_str = str(mock_log.call_args_list)
-            assert "reason" in call_str.lower()
+            # Verify unexpected disconnect logged with exact reason
+            mock_log.assert_called_once_with(
+                logger,
+                "warning",
+                MessageCode.MQTT_DISCONNECTED_UNEXPECTED,
+                reason=str(reason),
+            )
+
+        assert snc.is_connected is False
+
+    def test_on_disconnect_clean_logs_info_level(
+        self, mock_paho: MagicMock, config: MQTTConfig
+    ) -> None:
+        """Clean disconnect (reason_code=0) must log at INFO, not WARNING."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            snc = SmartNestMQTTClient(config)
+        snc.set_connected_for_test()
+
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            on_disconnect = mock_paho.on_disconnect
+            reason = ReasonCode(mqtt.DISCONNECT >> 4, identifier=0)  # 0 = clean
+            on_disconnect(mock_paho, None, MagicMock(spec=DisconnectFlags), reason, None)
+
+            # Verify clean disconnect logged at INFO level, not WARNING
+            mock_log.assert_called_once_with(
+                logger,
+                "info",  # Not "warning"
+                MessageCode.MQTT_DISCONNECTED_CLEAN,
+            )
 
         assert snc.is_connected is False
 
@@ -471,7 +608,13 @@ class TestClientCallbacks:
             on_message = mock_paho.on_message
             on_message(mock_paho, None, msg)
 
-            # Verify unhandled message logged with topic and QoS
-            mock_log.assert_called()
-            call_kwargs = [call[1] for call in mock_log.call_args_list]
-            assert any("topic" in kwargs for kwargs in call_kwargs)
+            # Verify unhandled message logged with exact parameters
+            mock_log.assert_called_once_with(
+                logger,
+                "debug",
+                MessageCode.MQTT_MESSAGE_UNHANDLED,
+                topic="smartnest/test",
+                qos=0,
+                retain=False,
+                payload='{"test": true}',
+            )
