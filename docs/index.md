@@ -162,13 +162,23 @@ npm run docker:logs    # View broker logs
 npm run docker:down    # Stop broker
 ```
 
-### VSCode Tasks
-Available via `Ctrl+Shift+P` → "Tasks: Run Task":
-- SmartNest: Start Broker
-- SmartNest: Stop Broker
-- SmartNest: MQTT Validation
-- SmartNest: Lint
-- SmartNest: Test
+### VS Code Tasks
+All tasks are defined in the **root** `.vscode/tasks.json` (not in SmartNest/.vscode/).
+
+Available via `Ctrl+Shift+P` → "Tasks: Run Task" or via the `run_task` tool:
+
+| Task Label | npm Script | Purpose |
+|---|---|---|
+| SmartNest: Start Broker | `docker:up` + `docker:logs` | Start HiveMQ MQTT broker |
+| SmartNest: Stop Broker | `docker:down` | Stop the broker |
+| SmartNest: MQTT Validation | `test:mqtt` | Validate broker connectivity |
+| SmartNest: Broker Health | `docker:health` | Check broker status |
+| SmartNest: Lint | `lint` | ruff check |
+| SmartNest: Test | `test` | pytest (unit + integration) |
+| SmartNest: Test Coverage | `test:cov` | pytest with coverage report |
+| SmartNest: Validate | `validate` | Full pipeline (lint + format + typecheck + test:cov) |
+
+**AI agents:** Always use `run_task` instead of `run_in_terminal` for these operations.
 
 ## Code Quality Standards
 
