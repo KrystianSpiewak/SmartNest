@@ -1,0 +1,28 @@
+services:
+  mqtt-broker:
+    image: hivemq/hivemq-ce:2025.5
+    container_name: smartnest-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./config/mqtt/config.xml:/opt/hivemq/conf/config.xml:ro
+      - mqtt-data:/opt/hivemq/data
+    environment:
+      - HIVEMQ_LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1883' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - smartnest
+
+networks:
+  smartnest:
+    driver: bridge
+
+volumes:
+  mqtt-data:
+    name: smartnest-mqtt-data

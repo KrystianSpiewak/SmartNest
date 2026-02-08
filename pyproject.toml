@@ -1,0 +1,62 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+    "RUF",   # ruff-specific rules
+    "S",     # flake8-bandit (security)
+    "C90",   # mccabe (complexity)
+    "A",     # flake8-builtins (shadowing builtins)
+    "DTZ",   # flake8-datetimez (timezone awareness)
+    "T20",   # flake8-print (no print statements)
+    "PT",    # flake8-pytest-style
+    "ARG",   # flake8-unused-arguments
+    "TRY",   # tryceratops (exception handling)
+    "ASYNC", # flake8-async
+    "PL",    # pylint (comprehensive checks)
+    "PERF",  # perflint (performance)
+    "LOG",   # flake8-logging
+]
+ignore = [
+    "E501",    # line too long (handled by formatter)
+    "S101",    # assert usage (OK in tests)
+    "PLR0913", # too many arguments (can be overly strict)
+    "TRY003",  # long exception messages (often necessary)
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 7
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend", "tui", "devices"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

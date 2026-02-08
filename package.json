@@ -1,0 +1,28 @@
+{
+  "name": "smartnest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SmartNest Home Automation Management System",
+  "scripts": {
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f mqtt-broker",
+    "docker:health": "docker inspect --format={{.State.Health.Status}} smartnest-mqtt",
+    "docker:reset": "docker compose down -v && docker compose up -d",
+    "setup": "rm -rf .venv && python -m venv .venv && .venv\\Scripts\\python.exe -m pip install --upgrade pip && .venv\\Scripts\\python.exe -m pip install -r requirements/dev.txt",
+    "setup:prod": "rm -rf .venv && python -m venv .venv && .venv\\Scripts\\python.exe -m pip install --upgrade pip && .venv\\Scripts\\python.exe -m pip install -r requirements/base.txt",
+    "activate": "echo Run this command: source .venv/Scripts/activate",
+    "dev": ".venv\\Scripts\\python -m backend.main",
+    "tui": ".venv\\Scripts\\python -m tui.main",
+    "devices:start": ".venv\\Scripts\\python -m devices.main",
+    "test": ".venv\\Scripts\\python -m pytest tests/",
+    "test:coverage": ".venv\\Scripts\\python -m pytest --cov=backend --cov=tui --cov-report=html tests/",
+    "test:mqtt": ".venv\\Scripts\\python scripts/mqtt_validation_test.py",
+    "lint": ".venv\\Scripts\\python -m ruff check backend/ tui/ devices/ scripts/",
+    "lint:fix": ".venv\\Scripts\\python -m ruff check --fix backend/ tui/ devices/ scripts/",
+    "format": ".venv\\Scripts\\python -m ruff format backend/ tui/ devices/ scripts/",
+    "format:check": ".venv\\Scripts\\python -m ruff format --check backend/ tui/ devices/ scripts/",
+    "typecheck": ".venv\\Scripts\\python -m mypy backend/ tui/ devices/",
+    "validate": "npm run lint && npm run format:check && npm run typecheck && npm run test"
+  }
+}
