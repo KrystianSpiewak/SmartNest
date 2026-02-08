@@ -1,26 +1,24 @@
-"""SmartNest MQTT Client Configuration."""
+"""SmartNest MQTT Client Configuration.
+
+Uses Pydantic ``BaseModel`` for declarative validation, type coercion,
+and serialization of MQTT broker connection parameters.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Validation constants
-_PORT_MIN = 1
-_PORT_MAX = 65535
-_KEEPALIVE_MIN = 10
 
-
-@dataclass
-class MQTTConfig:
+class MQTTConfig(BaseModel):
     """MQTT broker connection configuration.
 
     Attributes:
         broker: Hostname or IP address of the MQTT broker.
-        port: TCP port (1-65 535).
+        port: TCP port (1-65535).
         client_id: MQTT client identifier sent to the broker.
         username: Broker authentication username (``None`` to skip auth).
         password: Broker authentication password.
@@ -30,38 +28,21 @@ class MQTTConfig:
         reconnect_max_delay: Maximum reconnect wait in seconds (> 0).
     """
 
-    broker: str = "localhost"
-    port: int = 1883
+    model_config = ConfigDict(frozen=True)
+
+    broker: str = Field(default="localhost", min_length=1)
+    port: int = Field(default=1883, ge=1, le=65535)
     client_id: str = "smartnest_main"
     username: str | None = None
     password: str | None = None
-    keepalive: int = 60
+    keepalive: int = Field(default=60, ge=10)
     tls_enabled: bool = False
-    reconnect_min_delay: int = 1
-    reconnect_max_delay: int = 60
+    reconnect_min_delay: int = Field(default=1, gt=0)
+    reconnect_max_delay: int = Field(default=60, gt=0)
 
-    def __post_init__(self) -> None:
-        """Validate configuration values after dataclass init."""
-        if not self.broker:
-            msg = "broker must not be empty"
-            raise ValueError(msg)
-
-        if not _PORT_MIN <= self.port <= _PORT_MAX:
-            msg = f"Invalid port: {self.port}. Must be {_PORT_MIN}\u2013{_PORT_MAX}."
-            raise ValueError(msg)
-
-        if self.keepalive < _KEEPALIVE_MIN:
-            msg = f"Invalid keepalive: {self.keepalive}. Must be >= {_KEEPALIVE_MIN} seconds."
-            raise ValueError(msg)
-
-        if self.reconnect_min_delay <= 0:
-            msg = "reconnect_min_delay must be > 0"
-            raise ValueError(msg)
-
-        if self.reconnect_max_delay <= 0:
-            msg = "reconnect_max_delay must be > 0"
-            raise ValueError(msg)
-
+    @model_validator(mode="after")
+    def _validate_cross_field_constraints(self) -> MQTTConfig:
+        """Validate constraints that span multiple fields."""
         if self.reconnect_min_delay > self.reconnect_max_delay:
             msg = (
                 f"reconnect_min_delay ({self.reconnect_min_delay}) "
@@ -74,8 +55,9 @@ class MQTTConfig:
             raise ValueError(msg)
 
         logger.debug(
-            "MQTTConfig created: broker=%s:%d client_id=%s",
-            self.broker,
-            self.port,
-            self.client_id,
+            "MQTTConfig created",
+            broker=self.broker,
+            port=self.port,
+            client_id=self.client_id,
         )
+        return self

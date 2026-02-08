@@ -17,7 +17,7 @@
     "tui": ".venv\\Scripts\\python -m tui.main",
     "devices": ".venv\\Scripts\\python -m devices.main",
     "test": ".venv\\Scripts\\python -m pytest tests/",
-    "test:cov": ".venv\\Scripts\\python -m pytest --cov=backend --cov=tui --cov=devices --cov-report=html tests/",
+    "test:cov": ".venv\\Scripts\\python -m pytest --cov=backend --cov-report=term-missing --cov-report=html tests/",
     "test:mqtt": ".venv\\Scripts\\python scripts/mqtt_validation_test.py",
     "lint": ".venv\\Scripts\\ruff check .",
     "lint:fix": ".venv\\Scripts\\ruff check --fix .",
@@ -27,6 +27,7 @@
     "check": "npm run lint && npm run format:check && npm run typecheck",
     "check:fix": "npm run lint:fix && npm run format && npm run typecheck",
     "ci": "npm run check && npm run test",
+    "validate": "npm run lint && npm run format:check && npm run typecheck && npm run test",
     "test:mutation": ".venv\\Scripts\\mutmut run",
     "test:mutation:results": ".venv\\Scripts\\mutmut results",
     "test:mutation:html": ".venv\\Scripts\\mutmut html"

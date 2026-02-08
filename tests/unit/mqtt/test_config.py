@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from backend.mqtt.config import MQTTConfig
 
@@ -77,22 +78,22 @@ class TestMQTTConfigCustom:
 
 
 class TestMQTTConfigValidation:
-    """Tests for configuration validation in __post_init__."""
+    """Tests for Pydantic field and cross-field validation."""
 
     def test_empty_broker_raises(self) -> None:
-        with pytest.raises(ValueError, match="broker must not be empty"):
+        with pytest.raises(ValidationError, match="broker"):
             MQTTConfig(broker="")
 
     def test_port_zero_raises(self) -> None:
-        with pytest.raises(ValueError, match="Invalid port"):
+        with pytest.raises(ValidationError, match="port"):
             MQTTConfig(port=0)
 
     def test_port_negative_raises(self) -> None:
-        with pytest.raises(ValueError, match="Invalid port"):
+        with pytest.raises(ValidationError, match="port"):
             MQTTConfig(port=-1)
 
     def test_port_too_high_raises(self) -> None:
-        with pytest.raises(ValueError, match="Invalid port"):
+        with pytest.raises(ValidationError, match="port"):
             MQTTConfig(port=65536)
 
     def test_port_boundary_low(self) -> None:
@@ -104,7 +105,7 @@ class TestMQTTConfigValidation:
         assert cfg.port == 65535
 
     def test_keepalive_too_low(self) -> None:
-        with pytest.raises(ValueError, match="Invalid keepalive"):
+        with pytest.raises(ValidationError, match="keepalive"):
             MQTTConfig(keepalive=9)
 
     def test_keepalive_boundary(self) -> None:
@@ -112,23 +113,40 @@ class TestMQTTConfigValidation:
         assert cfg.keepalive == 10
 
     def test_reconnect_min_delay_zero(self) -> None:
-        with pytest.raises(ValueError, match="reconnect_min_delay must be > 0"):
+        with pytest.raises(ValidationError, match="reconnect_min_delay"):
             MQTTConfig(reconnect_min_delay=0)
 
     def test_reconnect_min_delay_negative(self) -> None:
-        with pytest.raises(ValueError, match="reconnect_min_delay must be > 0"):
+        with pytest.raises(ValidationError, match="reconnect_min_delay"):
             MQTTConfig(reconnect_min_delay=-1)
 
     def test_reconnect_max_delay_zero(self) -> None:
-        with pytest.raises(ValueError, match="reconnect_max_delay must be > 0"):
+        with pytest.raises(ValidationError, match="reconnect_max_delay"):
             MQTTConfig(reconnect_max_delay=0)
 
     def test_reconnect_min_exceeds_max(self) -> None:
         with pytest.raises(
-            ValueError, match=r"reconnect_min_delay.*must be <= reconnect_max_delay"
+            ValidationError, match=r"reconnect_min_delay.*must be <= reconnect_max_delay"
         ):
             MQTTConfig(reconnect_min_delay=120, reconnect_max_delay=60)
 
     def test_password_without_username(self) -> None:
-        with pytest.raises(ValueError, match="password requires username"):
+        with pytest.raises(ValidationError, match="password requires username"):
             MQTTConfig(password="secret")
+
+    def test_frozen_model_prevents_mutation(self) -> None:
+        cfg = MQTTConfig()
+        with pytest.raises(ValidationError):
+            cfg.broker = "other"  # type: ignore[misc]
+
+    def test_type_coercion_string_port(self) -> None:
+        """Pydantic coerces compatible types."""
+        cfg = MQTTConfig(port="8883")  # type: ignore[arg-type]
+        assert cfg.port == 8883
+
+    def test_model_dump(self) -> None:
+        cfg = MQTTConfig(broker="mqtt.local", port=8883)
+        data = cfg.model_dump()
+        assert data["broker"] == "mqtt.local"
+        assert data["port"] == 8883
+        assert isinstance(data, dict)

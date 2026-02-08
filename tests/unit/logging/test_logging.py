@@ -161,6 +161,15 @@ class TestLoggingConfig:
         log.info("auto_configured_event")
 
     @pytest.mark.usefixtures("_reset_structlog")
+    def test_get_logger_without_name(self) -> None:
+        """get_logger() without a name returns a logger without logger_name binding."""
+        reset_logging()
+        log = get_logger()
+        assert log is not None
+        # Should not raise
+        log.info("unnamed_logger_event")
+
+    @pytest.mark.usefixtures("_reset_structlog")
     def test_app_context_injected(self) -> None:
         """Every log entry contains app='smartnest'."""
         output = StringIO()

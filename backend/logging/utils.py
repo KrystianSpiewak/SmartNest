@@ -52,7 +52,7 @@ from structlog.contextvars import bind_contextvars, unbind_contextvars
 from backend.logging.catalog import MessageCode, format_message
 
 if TYPE_CHECKING:
-    import structlog
+    from structlog.typing import FilteringBoundLogger
 
 
 def generate_correlation_id() -> str:
@@ -95,7 +95,7 @@ def end_operation(*extra_keys: str) -> None:
 
 
 def log_with_code(
-    logger: structlog.stdlib.BoundLogger,
+    logger: FilteringBoundLogger,
     level: str,
     code: MessageCode,
     **context: Any,

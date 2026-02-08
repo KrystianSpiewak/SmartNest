@@ -24,8 +24,12 @@ Quick reference for SmartNest project documentation and configuration.
 
 ### Backend MQTT Module
 - [backend/mqtt/topics.py](../backend/mqtt/topics.py) - MQTT topic builder (TopicBuilder)
-- [backend/mqtt/config.py](../backend/mqtt/config.py) - MQTT connection configuration (MQTTConfig)
+- [backend/mqtt/config.py](../backend/mqtt/config.py) - MQTT connection configuration (MQTTConfig, Pydantic BaseModel)
 - [backend/mqtt/client.py](../backend/mqtt/client.py) - Core MQTT client (SmartNestMQTTClient)
+
+### Backend Configuration
+- [backend/config.py](../backend/config.py) - Application settings (AppSettings, pydantic-settings)
+- [.env.example](../.env.example) - Environment variable template (copy to .env)
 
 ### Backend Logging Module
 - [backend/logging/config.py](../backend/logging/config.py) - Structured logging configuration (structlog, console/JSON renderers)
@@ -34,8 +38,9 @@ Quick reference for SmartNest project documentation and configuration.
 - [backend/logging/__init__.py](../backend/logging/__init__.py) - Public API (configure_logging, get_logger, MessageCode, log_with_code)
 
 ### Tests
-- [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (79 tests)
-- [tests/unit/logging/](../tests/unit/logging/) - Unit tests for logging module (19 tests)
+- [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (82 tests)
+- [tests/unit/logging/](../tests/unit/logging/) - Unit tests for logging module (20 tests)
+- [tests/unit/test_config.py](../tests/unit/test_config.py) - Unit tests for AppSettings (19 tests)
 - [tests/integration/](../tests/integration/) - Integration tests against live broker (4 tests)
 
 ### Git Configuration
@@ -112,19 +117,21 @@ Bypass (not recommended): `git commit --no-verify`
 ```
 SmartNest/
 ├── backend/           # Backend service
+│   ├── config.py     # Application settings (pydantic-settings)
 │   ├── mqtt/         # MQTT client module
 │   │   ├── topics.py # Topic builder
-│   │   ├── config.py # Connection configuration
+│   │   ├── config.py # Connection configuration (Pydantic)
 │   │   └── client.py # SmartNestMQTTClient
 │   ├── logging/      # Structured logging (structlog)
 │   │   ├── config.py # configure_logging, get_logger
 │   │   ├── catalog.py# Message catalog (MessageCode enum)
 │   │   └── utils.py  # Correlation tracking, log_with_code
 │   └── __init__.py
-├── tests/            # Test suite
-│   ├── unit/mqtt/    # MQTT unit tests (79 tests, 100% coverage)
-│   ├── unit/logging/ # Logging unit tests (19 tests)
-│   └── integration/  # Integration tests (4 tests)
+├── tests/            # Test suite (125 tests, 100% coverage)
+│   ├── unit/mqtt/    # MQTT unit tests
+│   ├── unit/logging/ # Logging unit tests
+│   ├── unit/test_config.py # AppSettings tests
+│   └── integration/  # Integration tests
 ├── config/           # Configuration files
 ├── docs/             # Documentation (this directory)
 └── scripts/          # Utility scripts

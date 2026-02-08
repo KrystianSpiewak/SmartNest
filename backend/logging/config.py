@@ -107,7 +107,7 @@ def configure_logging(
     _configured = True
 
 
-def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:  # type: ignore[type-arg]
+def get_logger(name: str | None = None) -> structlog.typing.FilteringBoundLogger:
     """Return a bound ``structlog`` logger.
 
     If :func:`configure_logging` has not been called yet, a basic console
@@ -121,9 +121,9 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:  # type
     if not _configured:
         configure_logging(level="DEBUG", renderer="console")
 
-    log: structlog.stdlib.BoundLogger = structlog.get_logger()  # type: ignore[assignment]
+    log: structlog.typing.FilteringBoundLogger = structlog.get_logger()
     if name:
-        return log.bind(logger_name=name)  # type: ignore[return-value]
+        return log.bind(logger_name=name)
     return log
 
 
