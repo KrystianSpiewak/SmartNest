@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PRODUCTION Logging Configuration - Minimal logging for performance -->
+<configuration scan="true" scanPeriod="60 seconds">
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %-5level - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Only log errors and warnings for production -->
+    <logger name="com.hivemq" level="WARN"/>
+    
+    <!-- Critical errors only -->
+    <logger name="com.hivemq.extensions" level="ERROR"/>
+    <logger name="com.hivemq.persistence" level="ERROR"/>
+
+    <root level="WARN">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>

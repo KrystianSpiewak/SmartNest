@@ -6,14 +6,16 @@ services:
       - "1883:1883"
     volumes:
       - ./config/mqtt/config.xml:/opt/hivemq/conf/config.xml:ro
+      - ./config/mqtt/logback-dev.xml:/opt/hivemq/conf/logback.xml:ro
       - mqtt-data:/opt/hivemq/data
+      - ./logs/mqtt:/opt/hivemq/log
     environment:
-      - HIVEMQ_LOG_LEVEL=INFO
+      - HIVEMQ_LOG_LEVEL=DEBUG
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1883' || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "pgrep -f hivemq.jar > /dev/null || exit 1"]
+      interval: 30s
       timeout: 5s
-      retries: 5
+      retries: 3
       start_period: 20s
     restart: unless-stopped
     networks:

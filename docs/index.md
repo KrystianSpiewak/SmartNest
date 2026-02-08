@@ -16,6 +16,8 @@ Quick reference for SmartNest project documentation and configuration.
 
 ### Configuration
 - [config/mqtt/config.xml](../config/mqtt/config.xml) - MQTT broker configuration
+- [config/mqtt/logback-dev.xml](../config/mqtt/logback-dev.xml) - Verbose logging (development, current)
+- [config/mqtt/logback-prod.xml](../config/mqtt/logback-prod.xml) - Minimal logging (production)
 
 ### Scripts
 - [scripts/mqtt_validation_test.py](../scripts/mqtt_validation_test.py) - Broker connectivity test
@@ -106,6 +108,24 @@ SmartNest/
 | Linting/formatting | [pyproject.toml](../pyproject.toml) |
 | Line endings | [.gitattributes](../.gitattributes) |
 | Editor config | [.editorconfig](../.editorconfig) |
+
+## MQTT Broker Logging
+
+**Development (verbose - current):**
+- Shows connections, disconnections, subscriptions
+- Enabled by default in [docker-compose.yml](../docker-compose.yml)
+
+**Production (minimal):**
+- Only errors and warnings
+- To switch: Edit [docker-compose.yml](../docker-compose.yml), change:
+  ```yaml
+  - ./config/mqtt/logback-dev.xml:/opt/hivemq/conf/logback.xml:ro
+  ```
+  to:
+  ```yaml
+  - ./config/mqtt/logback-prod.xml:/opt/hivemq/conf/logback.xml:ro
+  ```
+- Then restart: `npm run docker:down && npm run docker:up`
 
 ---
 
