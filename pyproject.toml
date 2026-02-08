@@ -50,7 +50,7 @@ max-returns = 6
 max-statements = 50
 
 [tool.ruff.lint.isort]
-known-first-party = ["backend", "tui", "devices"]
+known-first-party = ["backend", "tui"]
 
 [tool.ruff.format]
 quote-style = "double"

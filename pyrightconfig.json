@@ -1,0 +1,4 @@
+{
+  "include": ["backend", "tests"],
+  "reportPrivateUsage": "warning"
+}

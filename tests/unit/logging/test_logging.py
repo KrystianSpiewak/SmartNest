@@ -1,4 +1,5 @@
 """Unit tests for the structured logging subsystem."""
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
@@ -49,7 +50,7 @@ class TestMessageCatalog:
     def test_all_codes_have_templates(self) -> None:
         """Every MessageCode member must appear in the catalog."""
         from backend.logging.catalog import (  # noqa: PLC0415
-            _CATALOG,  # pyright: ignore[reportPrivateUsage]
+            _CATALOG,
         )
 
         for code in MessageCode:

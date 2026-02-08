@@ -3,13 +3,17 @@
 Public API::
 
     from backend.mqtt import SmartNestMQTTClient, MQTTConfig, TopicBuilder
+    from backend.mqtt import DiscoveryConsumer, DeviceDiscoveryMessage
 """
 
 from backend.mqtt.client import SmartNestMQTTClient
 from backend.mqtt.config import MQTTConfig
+from backend.mqtt.discovery import DeviceDiscoveryMessage, DiscoveryConsumer
 from backend.mqtt.topics import TopicBuilder
 
 __all__ = [
+    "DeviceDiscoveryMessage",
+    "DiscoveryConsumer",
     "MQTTConfig",
     "SmartNestMQTTClient",
     "TopicBuilder",
