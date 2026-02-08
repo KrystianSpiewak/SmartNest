@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from unittest.mock import MagicMock
 
 import pytest
 import structlog
@@ -308,6 +309,23 @@ class TestLogWithCode:
         data = json.loads(output.getvalue().strip())
         assert data["level"] == "error"
         assert data["msg_id"] == "MQTT_008"
+
+    def test_log_with_code_suppresses_os_error(self) -> None:
+        """log_with_code gracefully handles OSError during logging."""
+        log = MagicMock()
+        # Simulate logging failure with OSError (e.g., closed file descriptor)
+        log.info.side_effect = OSError("Bad file descriptor")
+
+        # Should not raise - error is suppressed
+        log_with_code(
+            log,
+            "info",
+            MessageCode.MQTT_SUBSCRIBE_SUCCESS,
+            topic="smartnest/test",
+        )
+
+        # Verify the log attempt was made
+        log.info.assert_called_once()
 
 
 class TestChildLoggerPattern:

@@ -5,9 +5,13 @@ Configures structured logging for all tests (JSON renderer for easy assertions).
 
 from __future__ import annotations
 
+import contextlib
+
 from backend.logging.config import configure_logging
 
-# Configure once at import time so every test module gets consistent logging.
-# Use JSON so log output is machine-parseable if needed; level DEBUG to
-# capture all events during test runs.
-configure_logging(level="DEBUG", renderer="console")
+# Wrap logging configuration to handle mutation testing scenarios
+# where stdout/stderr may be closed or redirected improperly.
+with contextlib.suppress(OSError, ValueError):
+    # Configure once at import time so every test module gets consistent logging.
+    # Use console renderer for human-readable test output.
+    configure_logging(level="DEBUG", renderer="console")

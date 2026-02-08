@@ -67,15 +67,94 @@ npm run format         # ruff format
 npm run typecheck      # mypy strict mode
 npm run test           # pytest
 npm run validate       # Full pipeline (lint + format + typecheck + test)
+```
 
-# Mutation Testing (Week 6+)
-# Windows: Requires WSL2 (mutmut uses Unix process management)
-# Installation: wsl --install (Windows 10 2004+ or Windows 11)
-# Run from WSL: cd /mnt/d/Programowanie/College/Champlain/SDEV435/SmartNest
-npm run test:mutation          # mutmut mutation testing
-npm run test:mutation:results  # View mutmut results
-npm run test:mutation:html     # Generate HTML report
+## Mutation Testing
 
+** Windows users:** mutmut requires WSL2 due to Unix process management (fork, setproctitle).
+
+### Prerequisites
+- Windows 10 version 2004+ or Windows 11
+- WSL2 installed: `wsl --install` (PowerShell as Administrator)
+- Python 3.12+ in WSL (Ubuntu comes with Python 3.12.3)
+
+### Initial Setup (One-Time)
+
+```bash
+# In WSL terminal
+# Update package lists
+sudo apt update
+
+# Create venv in WSL native filesystem (avoids /mnt/d/ permission issues)
+cd ~
+python3 -m venv smartnest-venv
+
+# Activate venv
+source ~/smartnest-venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+```
+
+### Daily Usage
+
+**Recommended: Using bash script (works from WSL)**
+
+```bash
+# Make script executable (first time only)
+chmod +x mutmut.sh
+
+# Full workflow:
+./mutmut.sh all          # Run full pipeline (sync + test + report + sync back)
+./mutmut.sh analyze      # Categorize mutants by priority
+./mutmut.sh list         # List all surviving mutants
+./mutmut.sh show <id>    # Show diff for specific mutant
+./mutmut.sh apply <id>   # Apply mutant to see actual code
+
+# Individual commands:
+./mutmut.sh sync         # Sync project to WSL
+./mutmut.sh run          # Run mutation testing only
+./mutmut.sh results      # Show summary
+./mutmut.sh report       # Generate text report
+./mutmut.sh sync-report  # Copy report to Windows
+```
+
+**Investigating Mutants:**
+1. Run `./mutmut.sh all` - Full pipeline, creates `reports/mutation_report.txt` in Windows
+2. Open `reports/mutation_report.txt` to see all results
+3. Run `./mutmut.sh analyze` to see categorized high-priority mutants
+4. Run `./mutmut.sh show <full-id>` to see diff for specific mutant
+5. If needed, `./mutmut.sh apply <full-id>` to see actual code (run `./mutmut.sh sync` to revert)
+6. Write test to kill the mutant, then re-run mutation testing
+
+### Troubleshooting
+
+**Error: "node: not found" when running npm scripts**
+- npm scripts must be run from **Windows** (PowerShell/Command Prompt), not from inside WSL
+- Exit WSL with `exit` command, then run npm scripts from Windows
+- Alternative: Use `./mutmut.sh` commands directly in WSL
+
+**Error: "Operation not permitted" when creating venv**
+- Don't create venv on Windows filesystem (`/mnt/d/...`)
+- Create in WSL home: `cd ~ && python3 -m venv smartnest-venv`
+
+**Error: "Operation not permitted" when running mutmut**
+- mutmut needs to create `mutants/` directory which requires filesystem permissions
+- Solution: Copy project to WSL native filesystem before running
+- Use `rsync` command from Daily Usage section above
+
+**Error: "pip not found"**
+- Run: `sudo apt update && sudo apt install python3-pip -y`
+
+**Error: "python3.13 not found" or version mismatch**
+- Python 3.12.3 (WSL default) works fine for mutation testing
+- Code doesn't use 3.13-specific features
+
+**WSL filesystem is slow**
+- Accessing `/mnt/d/` is slower than native WSL filesystem
+- This is expected; mutmut performance is still acceptable
+
+```bash
 # MQTT
 npm run test:mqtt      # Validate MQTT connectivity
 npm run docker:health  # Check broker status

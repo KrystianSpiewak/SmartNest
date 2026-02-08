@@ -206,9 +206,35 @@ class TestClientTopicHandlers:
         client.add_topic_handler("smartnest/device/+/state", handler)
         mock_paho.message_callback_add.assert_called_once_with("smartnest/device/+/state", handler)
 
+    def test_add_topic_handler_logs_topic_filter(
+        self, client: SmartNestMQTTClient, mock_paho: MagicMock
+    ) -> None:
+        """Verify the topic filter is passed to logging when registering a handler."""
+        handler = MagicMock()
+
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            client.add_topic_handler("smartnest/sensor/+/data", handler)
+
+            # Verify log_with_code was called with topic_filter parameter
+            mock_log.assert_called_once()
+            call_kwargs = mock_log.call_args[1]
+            assert call_kwargs["topic_filter"] == "smartnest/sensor/+/data"
+
     def test_remove_topic_handler(self, client: SmartNestMQTTClient, mock_paho: MagicMock) -> None:
         client.remove_topic_handler("smartnest/device/+/state")
         mock_paho.message_callback_remove.assert_called_once_with("smartnest/device/+/state")
+
+    def test_remove_topic_handler_logs_topic_filter(
+        self, client: SmartNestMQTTClient, mock_paho: MagicMock
+    ) -> None:
+        """Verify the topic filter is passed to logging when removing a handler."""
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            client.remove_topic_handler("smartnest/system/+")
+
+            # Verify log_with_code was called with topic_filter parameter
+            mock_log.assert_called_once()
+            call_kwargs = mock_log.call_args[1]
+            assert call_kwargs["topic_filter"] == "smartnest/system/+"
 
 
 class TestClientConvenienceMethods:
@@ -226,6 +252,30 @@ class TestClientConvenienceMethods:
         assert call_args[1]["qos"] == 1
         assert call_args[1]["retain"] is True
 
+    def test_publish_device_state_timestamp_is_valid(
+        self, client: SmartNestMQTTClient, mock_paho: MagicMock
+    ) -> None:
+        """Verify timestamp is a valid float, not None."""
+        client.set_connected_for_test()
+        client.publish_device_state("light_01", {"power": "on"})
+        call_args = mock_paho.publish.call_args
+        payload = json.loads(call_args[0][1])
+        assert payload["timestamp"] is not None
+        assert isinstance(payload["timestamp"], float)
+        assert payload["timestamp"] > 0
+
+    def test_publish_device_state_calls_publish_with_explicit_params(
+        self, client: SmartNestMQTTClient
+    ) -> None:
+        """Verify publish_device_state passes explicit qos and retain parameters."""
+        client.set_connected_for_test()
+        with patch.object(client, "publish", return_value=True) as mock_publish:
+            client.publish_device_state("light_01", {"power": "on"})
+            mock_publish.assert_called_once()
+            call_kwargs = mock_publish.call_args[1]
+            assert call_kwargs["qos"] == 1
+            assert call_kwargs["retain"] is True
+
     def test_publish_sensor_data(self, client: SmartNestMQTTClient, mock_paho: MagicMock) -> None:
         client.set_connected_for_test()
         result = client.publish_sensor_data("temp_01", {"value": 21.5})
@@ -237,6 +287,30 @@ class TestClientConvenienceMethods:
         assert "timestamp" in payload
         assert call_args[1]["qos"] == 0
         assert call_args[1]["retain"] is False
+
+    def test_publish_sensor_data_timestamp_is_valid(
+        self, client: SmartNestMQTTClient, mock_paho: MagicMock
+    ) -> None:
+        """Verify timestamp is a valid float, not None."""
+        client.set_connected_for_test()
+        client.publish_sensor_data("temp_01", {"value": 21.5})
+        call_args = mock_paho.publish.call_args
+        payload = json.loads(call_args[0][1])
+        assert payload["timestamp"] is not None
+        assert isinstance(payload["timestamp"], float)
+        assert payload["timestamp"] > 0
+
+    def test_publish_sensor_data_calls_publish_with_explicit_params(
+        self, client: SmartNestMQTTClient
+    ) -> None:
+        """Verify publish_sensor_data passes explicit qos and retain parameters."""
+        client.set_connected_for_test()
+        with patch.object(client, "publish", return_value=True) as mock_publish:
+            client.publish_sensor_data("temp_01", {"value": 21.5})
+            mock_publish.assert_called_once()
+            call_kwargs = mock_publish.call_args[1]
+            assert call_kwargs["qos"] == 0
+            assert call_kwargs["retain"] is False
 
 
 class TestClientCallbacks:

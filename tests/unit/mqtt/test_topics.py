@@ -11,11 +11,11 @@ class TestValidateDeviceId:
     """Tests for the validate_device_id helper."""
 
     def test_empty_string_raises(self) -> None:
-        with pytest.raises(ValueError, match="must not be empty"):
+        with pytest.raises(ValueError, match=r"^device_id must not be empty$"):
             validate_device_id("")
 
     def test_whitespace_only_raises(self) -> None:
-        with pytest.raises(ValueError, match="whitespace-only"):
+        with pytest.raises(ValueError, match=r"^device_id must not be whitespace-only$"):
             validate_device_id("   ")
 
     def test_contains_plus_wildcard(self) -> None:

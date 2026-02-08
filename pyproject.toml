@@ -76,8 +76,3 @@ exclude_lines = [
 [tool.mypy]
 python_version = "3.13"
 strict = true
-
-[tool.mutmut]
-paths_to_mutate = ["backend/"]
-tests_dir = "tests/unit/"
-runner = "python -m pytest tests/unit/ -x --tb=no -q"

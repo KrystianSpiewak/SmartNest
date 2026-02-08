@@ -44,6 +44,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -139,4 +140,6 @@ def log_with_code(
     """
     message = format_message(code, **context)
     log_fn = getattr(logger, level)
-    log_fn(message, msg_id=code.value, **context)
+    with contextlib.suppress(OSError, ValueError):
+        # Logging may fail if output file is closed (e.g., during mutation testing).
+        log_fn(message, msg_id=code.value, **context)

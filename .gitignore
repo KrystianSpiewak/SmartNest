@@ -1,6 +1,6 @@
 # Python
-venv/
 .venv/
+.venv-wsl/
 __pycache__/
 *.log
 *.pyc
@@ -13,6 +13,10 @@ build/
 .pytest_cache/
 htmlcov/
 .coverage
+mutants/
+mutmut-report/
+.mutmut-cache
+reports/
 
 # IDE (but keep .vscode/settings.json tracked)
 # .vscode/settings.json removed to track workspace config

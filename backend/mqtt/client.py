@@ -10,6 +10,7 @@ Synchronous MQTT client wrapping Paho MQTT v2.  Provides:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import threading
@@ -145,7 +146,8 @@ class SmartNestMQTTClient:
             )
             self._connected.set()
         else:
-            logger.error("connection_refused", reason_code=str(reason_code))
+            with contextlib.suppress(OSError, ValueError):
+                logger.error("connection_refused", reason_code=str(reason_code))
             self._connected.clear()
 
     def _on_disconnect(
@@ -210,7 +212,8 @@ class SmartNestMQTTClient:
                 keepalive=self._config.keepalive,
             )
         except OSError:
-            logger.exception("connection_initiation_failed")
+            with contextlib.suppress(OSError, ValueError):
+                logger.exception("connection_initiation_failed")
             return False
 
         self._paho.loop_start()
@@ -229,7 +232,8 @@ class SmartNestMQTTClient:
 
     def disconnect(self) -> None:
         """Disconnect from broker and stop the network loop."""
-        logger.info("disconnecting")
+        with contextlib.suppress(OSError, ValueError):
+            logger.info("disconnecting")
         self._paho.loop_stop()
         self._paho.disconnect()
         self._connected.clear()

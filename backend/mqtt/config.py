@@ -6,6 +6,8 @@ and serialization of MQTT broker connection parameters.
 
 from __future__ import annotations
 
+import contextlib
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.logging import get_logger
@@ -54,10 +56,13 @@ class MQTTConfig(BaseModel):
             msg = "password requires username to be set"
             raise ValueError(msg)
 
-        logger.debug(
-            "MQTTConfig created",
-            broker=self.broker,
-            port=self.port,
-            client_id=self.client_id,
-        )
+        with contextlib.suppress(OSError, ValueError):
+            # Logging may not be configured (e.g., during mutation testing).
+            logger.debug(
+                "MQTTConfig created",
+                broker=self.broker,
+                port=self.port,
+                client_id=self.client_id,
+            )
+
         return self
