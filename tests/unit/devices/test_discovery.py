@@ -263,7 +263,8 @@ class TestDiscoveryConsumerRegistry:
         """Second announcement for same device_id updates the entry."""
         consumer._register_device(_valid_payload())
         updated_payload: dict[str, Any] = {**_valid_payload(), "name": "Updated Light"}
-        consumer._register_device(updated_payload)
+        with patch("backend.mqtt.discovery.logger"):
+            consumer._register_device(updated_payload)
         assert consumer.device_count == 1
         device = consumer.get_device("light_01")
         assert device is not None

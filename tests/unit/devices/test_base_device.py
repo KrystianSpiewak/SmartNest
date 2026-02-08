@@ -234,7 +234,9 @@ class TestBaseDeviceStart:
         """start() returns True immediately if already running."""
         device.client.set_connected_for_test(True)
         device.start()
-        result = device.start()
+        # Mock logger to avoid structlog I/O issues during mutation testing
+        with patch.object(device._logger, "warning"):
+            result = device.start()
         assert result is True
 
     def test_start_calls_on_start_hook(self, device_with_hooks: _ConcreteDevice) -> None:
