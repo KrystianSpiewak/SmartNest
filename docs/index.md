@@ -48,6 +48,9 @@ Quick reference for SmartNest project documentation and configuration.
 - [device_implementation_guide.md](device_implementation_guide.md) - How to create new device types using BaseDevice
 - [discovery_protocol.md](discovery_protocol.md) - SmartNest device discovery protocol specification
 
+### Project Planning
+- [timeline_optimizations.md](timeline_optimizations.md) - Timeline optimization analysis, 3-week buffer from continuous quality practices
+
 ## Quality Metrics (Current)
 
 - **Test Coverage:** 100% statement and branch coverage

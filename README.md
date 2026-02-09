@@ -101,30 +101,31 @@ npm run docker:down    # Stop broker
 - [ ] Device list and detail screens
 - [ ] Real-time updates
 
-### Phase 5: Security
-- [ ] Password hashing (bcrypt)
-- [ ] JWT authentication
-- [ ] Role-based access control
-- [ ] MQTT authentication
-- [ ] Security testing
+### Phase 5: Security (Week 11, 0.5 weeks) - Optimized
+- [ ] Password hashing (bcrypt, auth stubs from Phase 3)
+- [ ] JWT authentication with refresh tokens
+- [ ] Role-based access control (admin, user, readonly)
+- [ ] MQTT authentication and TLS
+- [ ] Security testing (parallel with implementation)
 
-### Phase 6: Testing
-- [ ] Unit test coverage 80%+
-- [ ] Integration tests
+### Phase 6: Testing (Weeks 11.5-12, 0.5 weeks) - Optimized
+- [x] Unit test coverage 100% (maintained continuously)
+- [x] Integration tests (4 tests, maintained continuously)
+- [x] Mutation testing 97.4% (maintained continuously)
 - [ ] End-to-end tests
-- [ ] Mutation testing (requires WSL on Windows)
 - [ ] Load testing
 
-### Phase 7: Deployment
-- [ ] Docker containerization
-- [ ] Cloud hosting setup
-- [ ] TLS configuration
-- [ ] Monitoring and logging
+### Phase 7: Deployment (Weeks 12.5-14, 1.5 weeks) - Optimized
+- [ ] Docker containerization (Dockerfile in Phase 3)
+- [ ] Cloud hosting setup (DigitalOcean/AWS)
+- [ ] TLS configuration (Let's Encrypt)
+- [ ] Monitoring and logging infrastructure
 
-### Phase 8: Documentation
-- [ ] User guide
-- [ ] API documentation
-- [ ] Deployment guide
+### Phase 8: Documentation (Weeks 14.5-15, 0.5 weeks) - Optimized
+- [x] Documentation maintained continuously
+- [ ] API auto-documentation (FastAPI OpenAPI/Swagger)
+- [ ] User guide finalization
+- [ ] Deployment runbook
 - [ ] Troubleshooting guide
 
 ## Key Features
