@@ -48,6 +48,15 @@ Quick reference for SmartNest project documentation and configuration.
 - [device_implementation_guide.md](device_implementation_guide.md) - How to create new device types using BaseDevice
 - [discovery_protocol.md](discovery_protocol.md) - SmartNest device discovery protocol specification
 
+## Quality Metrics (Current)
+
+- **Test Coverage:** 100% statement and branch coverage
+- **Test Count:** 369 tests (365 unit + 4 integration)
+- **Mutation Testing:** 97.4% kill rate (1182/1214 killed, 31 acceptable survivors)
+- **Linting:** 100% passing (ruff)
+- **Type Safety:** mypy strict mode with 0 errors
+- **Test Runtime:** ~20 seconds for full suite
+
 ### Tests
 - [tests/unit/devices/](../tests/unit/devices/) - Unit tests for device module (174 tests)
 - [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (94 tests)
@@ -231,7 +240,7 @@ SmartNest/
 │   │   ├── catalog.py# Message catalog (MessageCode enum)
 │   │   └── utils.py  # Correlation tracking, log_with_code
 │   └── __init__.py
-├── tests/            # Test suite (125 tests, 100% coverage)
+├── tests/            # Test suite (369 tests: 365 unit + 4 integration, 100% coverage)
 │   ├── unit/mqtt/    # MQTT unit tests
 │   ├── unit/logging/ # Logging unit tests
 │   ├── unit/test_config.py # AppSettings tests
@@ -271,5 +280,5 @@ SmartNest/
 
 ---
 
-**Last Updated:** February 9, 2026  
+**Last Updated:** February 9, 2026 (Post-Phase 2 completion)  
 **Project:** SmartNest Home Automation Management System

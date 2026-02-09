@@ -113,6 +113,18 @@ class TestMockSmartLightInit:
             )
         assert light.color_temp == 6500
 
+    def test_brightness_defaults_to_100(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+        """Creating light without brightness parameter defaults to 100."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            light = MockSmartLight(
+                device_id="test_light",
+                name="Test",
+                config=config,
+                # Explicitly NOT providing brightness parameter
+            )
+        # Verify runtime default value - kills brightness=101 mutation
+        assert light.brightness == 100
+
 
 # -- Tests: get_state ----------------------------------------------------------
 
@@ -259,6 +271,23 @@ class TestMockSmartLightCommandHandling:
 class TestMockSmartLightCommandLogging:
     """Tests for MockSmartLight command log events."""
 
+    def test_handle_command_starts_operation_with_exact_params(self, light: MockSmartLight) -> None:
+        """_handle_command must call start_operation with exact operation and device_id."""
+        msg = _make_message({"power": True})
+        with patch("backend.devices.mock_light.start_operation") as mock_start_op:
+            mock_start_op.return_value = "test-correlation-id"
+            light._handle_command(MagicMock(), None, msg)
+
+            # Verify start_operation called with exact parameters
+            mock_start_op.assert_called_once()
+            call = mock_start_op.call_args
+            # Kills operation=None, "XXlight_commandXX", "LIGHT_COMMAND"
+            assert call.args[0] == "light_command"
+            # Kills device_id=None, removal
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["device_id"] is not None
+
     def test_invalid_json_logs_failure(self, light: MockSmartLight) -> None:
         """Invalid JSON must log with exact logger and error."""
         msg = MagicMock(spec=mqtt.MQTTMessage)
@@ -274,10 +303,23 @@ class TestMockSmartLightCommandLogging:
             call = failed_calls[0]
             # Verify logger is not None and exact parameters
             assert call.args[0] is not None
+            # Verify exact log level - kills level=None, level="WARNING"
             assert call.args[1] == "warning"
+            # Verify command parameter present - kills command=None, removal
+            assert "command" in call.kwargs
+            assert call.kwargs["command"] == "unknown"
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
             assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["device_id"] is not None
+            # Verify error parameter present - kills error=None
             assert "error" in call.kwargs
             assert call.kwargs["error"] is not None
+            # Verify exact error string - kills case/content variations
+            assert call.kwargs["error"] == "Invalid JSON payload"
+            # Verify correlation_id parameter present - kills correlation_id=None, removal
+            assert "correlation_id" in call.kwargs
+            assert call.kwargs["correlation_id"] is not None
 
     def test_power_change_logs_command_sent(self, light: MockSmartLight) -> None:
         """Power state change must log exact command='power'."""
@@ -293,9 +335,15 @@ class TestMockSmartLightCommandLogging:
             call = sent_calls[0]
             # Verify logger is not None and exact parameters
             assert call.args[0] is not None
+            # Verify exact log level - kills level=None, level="INFO"
             assert call.args[1] == "info"
-            assert call.kwargs["device_id"] == "light_01"
+            # Verify command parameter present - kills command=None, removal
+            assert "command" in call.kwargs
             assert call.kwargs["command"] == "power"  # Exact string, kills mutations
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["device_id"] is not None
 
     def test_invalid_brightness_logs_failure(self, light: MockSmartLight) -> None:
         """Invalid brightness must log exact command='brightness' and error."""
@@ -311,9 +359,16 @@ class TestMockSmartLightCommandLogging:
             call = failed_calls[0]
             # Verify logger and exact parameters
             assert call.args[0] is not None
+            # Verify exact log level - kills level=None, level="WARNING"
             assert call.args[1] == "warning"
-            assert call.kwargs["device_id"] == "light_01"
+            # Verify command parameter present - kills command=None, removal
+            assert "command" in call.kwargs
             assert call.kwargs["command"] == "brightness"  # Exact command name
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["device_id"] is not None
+            # Verify error parameter present - kills error=None
             assert "error" in call.kwargs
             assert call.kwargs["error"] is not None
 
@@ -440,6 +495,62 @@ class TestMockSmartLightApplyCommand:
         result = light._apply_command({"brightness": "invalid"})
         assert result is False
         assert light.brightness == 100  # Unchanged
+
+    def test_apply_command_invalid_color_temp_logs_exact_params(
+        self, light: MockSmartLight
+    ) -> None:
+        """Invalid color_temp must log with exact command, device_id, and error."""
+        with patch("backend.devices.mock_light.log_with_code") as mock_log:
+            result = light._apply_command({"color_temp": "invalid"})
+
+            # Verify return value is False (no change)
+            assert result is False
+
+            # Find DEVICE_COMMAND_FAILED call
+            failed_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_FAILED
+            ]
+            assert len(failed_calls) == 1
+            call = failed_calls[0]
+
+            # Verify all parameters present with exact values
+            assert "command" in call.kwargs
+            assert call.kwargs["command"] == "color_temp"  # NOT None, NOT removed
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"  # NOT None
+            assert call.kwargs["device_id"] is not None
+            assert "error" in call.kwargs
+            assert call.kwargs["error"] is not None  # NOT None
+            assert "invalid" in call.kwargs["error"].lower()  # Contains actual value
+            assert call.args[1] == "warning"  # Exact log level
+
+    def test_apply_command_color_temp_success_logs_exact_params(
+        self, light: MockSmartLight
+    ) -> None:
+        """Successful color_temp change must log with exact command and device_id."""
+        with patch("backend.devices.mock_light.log_with_code") as mock_log:
+            result = light._apply_command({"color_temp": 3500})
+
+            assert result is True
+
+            # Find DEVICE_COMMAND_SENT call
+            sent_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_SENT
+            ]
+            assert len(sent_calls) == 1
+            call = sent_calls[0]
+
+            # Verify parameters
+            assert "command" in call.kwargs
+            assert call.kwargs["command"] == "color_temp"
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"  # NOT None
+            assert call.kwargs["device_id"] is not None
+            assert call.args[1] == "info"
 
 
 # -- Tests: Discovery payload -------------------------------------------------

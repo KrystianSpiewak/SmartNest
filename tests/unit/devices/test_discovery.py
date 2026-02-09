@@ -275,6 +275,41 @@ class TestDiscoveryConsumerRegistry:
         assert device is not None
         assert device.name == "Updated Light"
 
+    def test_update_existing_device_logs_exact_event(self, consumer: DiscoveryConsumer) -> None:
+        """Updating existing device must log exact 'discovery_updated' event."""
+        # Register initial device
+        initial = {
+            "device_id": "light_01",
+            "name": "Living Room Light",
+            "device_type": "light",
+        }
+        msg = _make_discovery_message(initial)
+        consumer._on_discovery_message(MagicMock(), None, msg)
+        assert consumer.device_count == 1
+
+        # Update same device
+        updated = {
+            "device_id": "light_01",
+            "name": "Updated Light",
+            "device_type": "light",
+        }
+        msg_updated = _make_discovery_message(updated)
+
+        with patch("backend.mqtt.discovery.logger") as mock_logger:
+            consumer._on_discovery_message(MagicMock(), None, msg_updated)
+
+            # Verify debug log with exact event name
+            mock_logger.debug.assert_called_once()
+            call_args = mock_logger.debug.call_args
+            # Kills None, removal, case/content variations
+            assert call_args.args[0] == "discovery_updated"
+            assert call_args.kwargs["device_id"] == "light_01"
+
+        assert consumer.device_count == 1
+        device = consumer.get_device("light_01")
+        assert device is not None
+        assert device.name == "Updated Light"
+
     def test_get_discovered_devices_returns_snapshot(self, consumer: DiscoveryConsumer) -> None:
         """get_discovered_devices() returns a copy, not a reference."""
         consumer._register_device(_valid_payload())
@@ -303,8 +338,11 @@ class TestDiscoveryConsumerCallback:
         with patch("backend.mqtt.discovery.logger") as mock_logger:
             consumer._on_discovery_message(MagicMock(), None, msg)
             mock_logger.warning.assert_called_once()
-            call_kwargs = mock_logger.warning.call_args.kwargs
-            # Verify exact parameters - kills string and field mutations
+            call_args = mock_logger.warning.call_args
+            # Verify exact event name - kills None, removal, case mutations
+            assert call_args.args[0] == "discovery_payload_invalid"
+            # Verify exact parameters
+            call_kwargs = call_args.kwargs
             assert call_kwargs["error"] == "Failed to decode JSON"
             assert call_kwargs["topic"] == "smartnest/discovery/announce"
         assert consumer.device_count == 0
@@ -317,8 +355,11 @@ class TestDiscoveryConsumerCallback:
         with patch("backend.mqtt.discovery.logger") as mock_logger:
             consumer._on_discovery_message(MagicMock(), None, msg)
             mock_logger.warning.assert_called_once()
-            call_kwargs = mock_logger.warning.call_args.kwargs
-            # Verify exact parameters - kills string mutations
+            call_args = mock_logger.warning.call_args
+            # Verify exact event name - kills None, removal, case mutations
+            assert call_args.args[0] == "discovery_payload_invalid"
+            # Verify exact parameters
+            call_kwargs = call_args.kwargs
             assert call_kwargs["error"] == "Failed to decode JSON"
             assert call_kwargs["topic"] == "smartnest/discovery/announce"
         assert consumer.device_count == 0

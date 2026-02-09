@@ -121,6 +121,18 @@ class TestTempSensorInit:
             )
         assert sensor.interval == 5.0
 
+    def test_init_timer_starts_as_none(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+        """Timer must be initialized to None, not empty string."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            sensor = MockTemperatureSensor(
+                device_id="temp_01",
+                name="Test",
+                config=config,
+            )
+        # Verify timer is None before any reading scheduled
+        assert sensor._timer is None  # Kills "" mutation
+        assert sensor._timer != ""
+
 
 # -- Tests: State and reading --------------------------------------------------
 
@@ -139,6 +151,48 @@ class TestTempSensorState:
         reading = sensor.get_reading()
         assert reading["value"] == 70.0
         assert reading["unit"] == "F"
+
+
+# -- Tests: Rounding precision -------------------------------------------------
+
+
+class TestTempSensorRoundingPrecision:
+    """Tests for temperature rounding precision."""
+
+    def test_get_state_rounds_to_one_decimal(
+        self, config: MQTTConfig, mock_paho: MagicMock
+    ) -> None:
+        """get_state must round to exactly 1 decimal place."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            sensor = MockTemperatureSensor(
+                device_id="temp_01",
+                name="Test",
+                config=config,
+                initial_temp=70.12345,  # Many decimals
+            )
+        state = sensor.get_state()
+        # Verify exactly 1 decimal - kills round(x,None), round(x,2)
+        assert state["value"] == 70.1
+        # Verify it's actually rounded, not truncated
+        sensor._temperature = 70.16
+        assert sensor.get_state()["value"] == 70.2  # Rounds up
+
+    def test_get_reading_rounds_to_one_decimal(
+        self, config: MQTTConfig, mock_paho: MagicMock
+    ) -> None:
+        """get_reading must round to exactly 1 decimal place."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            sensor = MockTemperatureSensor(
+                device_id="temp_01",
+                name="Test",
+                config=config,
+                initial_temp=72.14,
+            )
+        reading = sensor.get_reading()
+        # round(72.14, 1) = 72.1
+        # round(72.14, None) = 72 (different!)
+        # round(72.14, 2) = 72.14 (different!)
+        assert reading["value"] == 72.1  # Kills all rounding mutations
 
 
 # -- Tests: Temperature drift --------------------------------------------------
@@ -190,6 +244,36 @@ class TestTempSensorDrift:
         for _ in range(100):
             sensor._simulate_drift()
         assert sensor.temperature <= 75.0
+
+    def test_simulate_drift_uses_negative_bound(self, sensor: MockTemperatureSensor) -> None:
+        """_simulate_drift must use symmetric negative bound for random.uniform."""
+        initial_temp = sensor.temperature
+
+        with patch("backend.devices.mock_temperature_sensor.random.uniform") as mock_uniform:
+            # Return a negative drift
+            mock_uniform.return_value = -0.5
+            sensor._simulate_drift()
+
+            # Verify random.uniform was called with negative first argument
+            mock_uniform.assert_called_once()
+            first_arg = mock_uniform.call_args[0][0]
+            second_arg = mock_uniform.call_args[0][1]
+            # Kills random.uniform(+X, X) mutation
+            assert first_arg < 0  # Must be negative
+            assert second_arg > 0  # Must be positive
+            assert abs(first_arg) == second_arg  # Symmetric
+
+            # Verify temperature decreased
+            assert sensor.temperature < initial_temp
+
+    def test_simulate_drift_applies_addition(self, sensor: MockTemperatureSensor) -> None:
+        """_simulate_drift must ADD drift to temperature, not subtract."""
+        with patch("backend.devices.mock_temperature_sensor.random.uniform") as mock_uniform:
+            mock_uniform.return_value = 1.0  # Positive drift
+            initial = sensor._temperature
+            sensor._simulate_drift()
+            # Kills self._temperature - drift mutation
+            assert sensor._temperature > initial  # Must increase
 
 
 # -- Tests: Publishing ---------------------------------------------------------
@@ -453,9 +537,20 @@ class TestTempSensorCommandLogging:
             call = failed_calls[0]
             # Verify logger is not None
             assert call.args[0] is not None
+            # Verify exact log level - kills level=None, level="WARNING"
             assert call.args[1] == "warning"
+            # Verify command parameter present - kills removal
+            assert "command" in call.kwargs
             assert call.kwargs["command"] == "unknown"
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "temp_01"
+            assert call.kwargs["device_id"] is not None
+            # Verify error parameter present - kills error=None
+            assert "error" in call.kwargs
             assert call.kwargs["error"] is not None
+            # Verify exact error string - kills case/content variations
+            assert call.kwargs["error"] == "Invalid JSON payload"
 
     def test_invalid_interval_logs_exact_command_and_error(
         self, sensor: MockTemperatureSensor
@@ -471,9 +566,18 @@ class TestTempSensorCommandLogging:
             ]
             assert len(failed_calls) == 1
             call = failed_calls[0]
+            # Verify logger is not None
             assert call.args[0] is not None
+            # Verify exact log level - kills level=None, level="WARNING"
+            assert call.args[1] == "warning"
+            # Verify command parameter present - kills command=None, removal
+            assert "command" in call.kwargs
             assert call.kwargs["command"] == "interval"  # Exact string
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
             assert call.kwargs["device_id"] == "temp_01"
+            assert call.kwargs["device_id"] is not None
+            # Verify error parameter present - kills error=None
             assert "error" in call.kwargs
             assert call.kwargs["error"] is not None
 

@@ -182,6 +182,22 @@ class TestMotionSensorTriggerClear:
             mock_cls.assert_called_once_with(5.0, sensor._auto_clear)
             mock_timer.start.assert_called_once()
 
+    def test_trigger_motion_timer_is_daemon(
+        self, sensor: MockMotionSensor, mock_paho: MagicMock
+    ) -> None:
+        """Cooldown timer must be daemon thread to not block shutdown."""
+        sensor._client.set_connected_for_test(True)
+        with patch("backend.devices.mock_motion_sensor.threading.Timer") as mock_timer_cls:
+            mock_timer = MagicMock()
+            mock_timer_cls.return_value = mock_timer
+
+            sensor.trigger_motion()
+
+            # Verify timer was created
+            mock_timer_cls.assert_called_once()
+            # Verify daemon property was set to True - kills daemon=None, daemon=False
+            assert mock_timer.daemon is True
+
     def test_retrigger_cancels_old_cooldown(
         self, sensor: MockMotionSensor, mock_paho: MagicMock
     ) -> None:
@@ -355,6 +371,30 @@ class TestMotionSensorCommandHandling:
 class TestMotionSensorCommandLogging:
     """Tests for command log events with exact logger and parameter verification."""
 
+    def test_handle_command_starts_operation_with_exact_params(
+        self, sensor: MockMotionSensor, mock_paho: MagicMock
+    ) -> None:
+        """_handle_command must call start_operation with exact operation and device_id."""
+        sensor._client.set_connected_for_test(True)
+        msg = _make_message({"trigger": True})
+        with (
+            patch("backend.devices.mock_motion_sensor.threading.Timer") as mock_cls,
+            patch("backend.devices.mock_motion_sensor.start_operation") as mock_start_op,
+        ):
+            mock_cls.return_value = MagicMock()
+            mock_start_op.return_value = "test-correlation-id"
+            sensor._handle_command(MagicMock(), None, msg)
+
+            # Verify start_operation called with exact parameters
+            mock_start_op.assert_called_once()
+            call = mock_start_op.call_args
+            # Kills operation=None, "XXmotion_commandXX", "MOTION_COMMAND"
+            assert call.args[0] == "motion_command"
+            # Kills device_id=None, removal
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "motion_01"
+            assert call.kwargs["device_id"] is not None
+
     def test_trigger_command_logs_with_exact_params(
         self, sensor: MockMotionSensor, mock_paho: MagicMock
     ) -> None:
@@ -377,9 +417,15 @@ class TestMotionSensorCommandLogging:
             # Verify logger is not None - kills logger=None mutations
             assert call.args[0] is not None
             assert hasattr(call.args[0], "info")
+            # Verify exact log level - kills level=None, level="INFO"
             assert call.args[1] == "info"
+            # Verify command parameter present - kills command=None, removal
+            assert "command" in call.kwargs
             assert call.kwargs["command"] == "trigger"  # Exact string
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
             assert call.kwargs["device_id"] == "motion_01"
+            assert call.kwargs["device_id"] is not None
 
     def test_clear_command_logs_with_exact_params(
         self, sensor: MockMotionSensor, mock_paho: MagicMock
@@ -399,9 +445,15 @@ class TestMotionSensorCommandLogging:
             call = sent_calls[0]
             assert call.args[0] is not None
             assert hasattr(call.args[0], "info")
+            # Verify exact log level - kills level=None, level="INFO"
             assert call.args[1] == "info"
+            # Verify command parameter present - kills command=None, removal
+            assert "command" in call.kwargs
             assert call.kwargs["command"] == "clear"  # Exact string
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
             assert call.kwargs["device_id"] == "motion_01"
+            assert call.kwargs["device_id"] is not None
 
     def test_invalid_json_logs_with_logger(self, sensor: MockMotionSensor) -> None:
         """Invalid JSON must log with non-None logger."""
@@ -418,9 +470,23 @@ class TestMotionSensorCommandLogging:
             call = failed_calls[0]
             # Verify logger is not None
             assert call.args[0] is not None
+            # Verify exact log level - kills level=None, level="WARNING"
             assert call.args[1] == "warning"
+            # Verify command parameter present - kills command=None, removal
+            assert "command" in call.kwargs
             assert call.kwargs["command"] == "unknown"
+            # Verify device_id parameter present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "motion_01"
+            assert call.kwargs["device_id"] is not None
+            # Verify error parameter present - kills error=None
             assert "error" in call.kwargs
+            assert call.kwargs["error"] is not None
+            # Verify exact error string - kills case/content variations
+            assert call.kwargs["error"] == "Invalid JSON payload"
+            # Verify correlation_id parameter present - kills correlation_id=None, removal
+            assert "correlation_id" in call.kwargs
+            assert call.kwargs["correlation_id"] is not None
 
 
 # -- Tests: State publishing methods -------------------------------------------

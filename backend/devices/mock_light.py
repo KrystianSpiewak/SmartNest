@@ -64,7 +64,7 @@ class MockSmartLight(BaseDevice):
         name: str,
         config: MQTTConfig,
         power: bool = False,
-        brightness: int = 100,
+        brightness: int = 100,  # NOTE: brightness=101 mutant survives - clamping makes it harmless
         color_temp: int = 4000,
     ) -> None:
         super().__init__(
@@ -74,7 +74,7 @@ class MockSmartLight(BaseDevice):
             config=config,
         )
         self._power = power
-        self._brightness = self._clamp_brightness(brightness)
+        self._brightness = self._clamp_brightness(brightness)  # Clamps [0, 100]
         self._color_temp = self._clamp_color_temp(color_temp)
 
     # -- Properties ------------------------------------------------------------

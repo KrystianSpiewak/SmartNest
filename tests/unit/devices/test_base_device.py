@@ -184,6 +184,7 @@ class TestBaseDeviceInit:
         # Verify the logger works without errors (implicitly verifies bind worked)
         # If device_id or device_type were None, the logger would still work but
         # mutations would survive. We verify the actual values by mocking log_with_code
+        device.client.set_connected_for_test(True)
         with patch("backend.devices.base.log_with_code") as mock_log:
             # Trigger a log event that uses the bound logger
             device.start()  # This will call log_with_code with the bound logger
@@ -304,6 +305,8 @@ class TestBaseDeviceStart:
             # Verify error message contains connection failure info
             assert "error" in call.kwargs
             assert call.kwargs["error"] is not None
+            # Verify exact error string - kills case/content variations
+            assert call.kwargs["error"] == "Failed to connect to MQTT broker"
 
     def test_start_logs_device_connected(
         self, device: _ConcreteDevice, mock_paho: MagicMock
@@ -331,6 +334,39 @@ class TestBaseDeviceStart:
         sig = inspect.signature(BaseDevice.start)
         # Verify exact default value - kills timeout=11.0, timeout=9.0 mutations
         assert sig.parameters["timeout"].default == 10.0
+
+    def test_start_calls_start_operation_with_exact_params(
+        self, device: _ConcreteDevice, mock_paho: MagicMock
+    ) -> None:
+        """start() must call start_operation with exact operation name and device_id."""
+        device.client.set_connected_for_test(True)
+        with patch("backend.devices.base.start_operation") as mock_start_op:
+            device.start()
+
+            # Verify start_operation called with exact parameters
+            mock_start_op.assert_called_once()
+            call = mock_start_op.call_args
+            # Verify exact operation name - kills "XXdevice_startXX", None
+            assert call.args[0] == "device_start"
+            # Verify device_id kwarg present - kills device_id=None, removal
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "test_device"
+            assert call.kwargs["device_id"] is not None
+
+    def test_start_already_running_logs_exact_message(self, device: _ConcreteDevice) -> None:
+        """start() when already running must log exact warning message."""
+        device.client.set_connected_for_test(True)
+        device.start()  # Start once
+
+        # Mock the logger to capture the call
+        with patch.object(device._logger, "warning") as mock_warn:
+            device.start()  # Try to start again
+
+            # Verify exact warning message
+            mock_warn.assert_called_once()
+            call_args = mock_warn.call_args
+            # Kills None, "XXdevice_already_runningXX", "DEVICE_ALREADY_RUNNING"
+            assert call_args.args[0] == "device_already_running"
 
 
 # -- Tests: Stop ---------------------------------------------------------------
