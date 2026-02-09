@@ -37,9 +37,21 @@ Quick reference for SmartNest project documentation and configuration.
 - [backend/logging/utils.py](../backend/logging/utils.py) - Correlation tracking and catalog-aware log helpers
 - [backend/logging/__init__.py](../backend/logging/__init__.py) - Public API (configure_logging, get_logger, MessageCode, log_with_code)
 
+### Backend Devices Module (Week 5)
+- [backend/devices/base.py](../backend/devices/base.py) - BaseDevice abstract class for all mock devices
+- [backend/devices/mock_light.py](../backend/devices/mock_light.py) - MockSmartLight (event-driven controllable device)
+- [backend/devices/mock_temperature_sensor.py](../backend/devices/mock_temperature_sensor.py) - MockTemperatureSensor (time-driven periodic sensor)
+- [backend/devices/mock_motion_sensor.py](../backend/devices/mock_motion_sensor.py) - MockMotionSensor (event-driven binary sensor)
+- [backend/mqtt/discovery.py](../backend/mqtt/discovery.py) - Device discovery protocol (DeviceDiscoveryMessage, DiscoveryConsumer)
+
+### Developer Guides
+- [device_implementation_guide.md](device_implementation_guide.md) - How to create new device types using BaseDevice
+- [discovery_protocol.md](discovery_protocol.md) - SmartNest device discovery protocol specification
+
 ### Tests
-- [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (82 tests)
-- [tests/unit/logging/](../tests/unit/logging/) - Unit tests for logging module (20 tests)
+- [tests/unit/devices/](../tests/unit/devices/) - Unit tests for device module (174 tests)
+- [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (94 tests)
+- [tests/unit/logging/](../tests/unit/logging/) - Unit tests for logging module (26 tests)
 - [tests/unit/test_config.py](../tests/unit/test_config.py) - Unit tests for AppSettings (19 tests)
 - [tests/integration/](../tests/integration/) - Integration tests against live broker (4 tests)
 

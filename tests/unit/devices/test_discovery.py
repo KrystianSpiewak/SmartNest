@@ -249,7 +249,7 @@ class TestDiscoveryConsumerRegistry:
         assert device is None
 
     def test_get_device_not_found_logs_debug(self, consumer: DiscoveryConsumer) -> None:
-        """get_device() logs DEVICE_NOT_FOUND when not found."""
+        """get_device() must log DEVICE_NOT_FOUND with exact device_id."""
         with patch("backend.mqtt.discovery.log_with_code") as mock_log:
             consumer.get_device("nonexistent")
             not_found_calls = [
@@ -258,6 +258,11 @@ class TestDiscoveryConsumerRegistry:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_NOT_FOUND
             ]
             assert len(not_found_calls) == 1
+            call = not_found_calls[0]
+            # Verify logger is not None and exact parameters
+            assert call.args[0] is not None
+            assert call.args[1] == "debug"
+            assert call.kwargs["device_id"] == "nonexistent"  # Exact value
 
     def test_duplicate_announcement_updates_entry(self, consumer: DiscoveryConsumer) -> None:
         """Second announcement for same device_id updates the entry."""
@@ -291,23 +296,31 @@ class TestDiscoveryConsumerCallback:
         assert consumer.device_count == 1
 
     def test_invalid_json_logs_warning(self, consumer: DiscoveryConsumer) -> None:
-        """Invalid JSON in payload logs warning."""
+        """Invalid JSON must log warning with exact error message."""
         msg = MagicMock(spec=mqtt.MQTTMessage)
         msg.payload = b"not-json"
         msg.topic = "smartnest/discovery/announce"
         with patch("backend.mqtt.discovery.logger") as mock_logger:
             consumer._on_discovery_message(MagicMock(), None, msg)
             mock_logger.warning.assert_called_once()
+            call_kwargs = mock_logger.warning.call_args.kwargs
+            # Verify exact parameters - kills string and field mutations
+            assert call_kwargs["error"] == "Failed to decode JSON"
+            assert call_kwargs["topic"] == "smartnest/discovery/announce"
         assert consumer.device_count == 0
 
     def test_invalid_unicode_logs_warning(self, consumer: DiscoveryConsumer) -> None:
-        """Invalid unicode in payload logs warning."""
+        """Invalid unicode must log warning with exact error message."""
         msg = MagicMock(spec=mqtt.MQTTMessage)
         msg.payload = b"\x80\x81\x82"
         msg.topic = "smartnest/discovery/announce"
         with patch("backend.mqtt.discovery.logger") as mock_logger:
             consumer._on_discovery_message(MagicMock(), None, msg)
             mock_logger.warning.assert_called_once()
+            call_kwargs = mock_logger.warning.call_args.kwargs
+            # Verify exact parameters - kills string mutations
+            assert call_kwargs["error"] == "Failed to decode JSON"
+            assert call_kwargs["topic"] == "smartnest/discovery/announce"
         assert consumer.device_count == 0
 
 
@@ -318,7 +331,7 @@ class TestDiscoveryConsumerRegistration:
     """Tests for _register_device() validation paths."""
 
     def test_invalid_payload_logs_failure(self, consumer: DiscoveryConsumer) -> None:
-        """Invalid payload (missing fields) logs DEVICE_REGISTRATION_FAILED."""
+        """Invalid payload must log with exact logger, device_id, and error."""
         with patch("backend.mqtt.discovery.log_with_code") as mock_log:
             consumer._register_device({"device_id": "x"})  # missing name, type
             failed_calls = [
@@ -327,9 +340,16 @@ class TestDiscoveryConsumerRegistration:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_REGISTRATION_FAILED
             ]
             assert len(failed_calls) == 1
+            call = failed_calls[0]
+            # Verify logger is not None and exact parameters
+            assert call.args[0] is not None
+            assert call.args[1] == "warning"
+            assert call.kwargs["device_id"] == "x"  # Exact device_id from payload
+            assert "error" in call.kwargs
+            assert call.kwargs["error"] is not None
 
     def test_valid_registration_logs_success(self, consumer: DiscoveryConsumer) -> None:
-        """Valid registration logs DEVICE_REGISTERED."""
+        """Device registration must log with exact logger and parameters."""
         with patch("backend.mqtt.discovery.log_with_code") as mock_log:
             consumer._register_device(_valid_payload())
             registered_calls = [
@@ -338,16 +358,26 @@ class TestDiscoveryConsumerRegistration:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_REGISTERED
             ]
             assert len(registered_calls) == 1
+            call = registered_calls[0]
+            # Verify logger is not None and exact parameters
+            assert call.args[0] is not None
+            assert call.args[1] == "info"
+            assert call.kwargs["device_id"] == "light_01"  # Exact value
+            assert call.kwargs["device_type"] == "smart_light"  # Exact value
 
     def test_update_registration_logs_debug(self, consumer: DiscoveryConsumer) -> None:
-        """Updated registration emits debug log."""
+        """Updated registration must emit debug log with exact device_id."""
         consumer._register_device(_valid_payload())
         with patch("backend.mqtt.discovery.logger") as mock_logger:
             consumer._register_device({**_valid_payload(), "name": "Updated"})
             mock_logger.debug.assert_called_once()
+            call_kwargs = mock_logger.debug.call_args.kwargs
+            # Verify exact parameters - kills device_id=None mutation
+            assert call_kwargs["device_id"] == "light_01"
+            assert call_kwargs["device_id"] is not None
 
     def test_invalid_device_id_in_payload(self, consumer: DiscoveryConsumer) -> None:
-        """Invalid device_id (wildcard) in payload logs registration failure."""
+        """Invalid device_id (wildcard) must log with exact device_id and error."""
         payload: dict[str, Any] = {**_valid_payload(), "device_id": "bad+id"}
         with patch("backend.mqtt.discovery.log_with_code") as mock_log:
             consumer._register_device(payload)
@@ -357,6 +387,12 @@ class TestDiscoveryConsumerRegistration:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_REGISTRATION_FAILED
             ]
             assert len(failed_calls) == 1
+            call = failed_calls[0]
+            # Verify logger is not None and exact parameters
+            assert call.args[0] is not None
+            assert call.args[1] == "warning"
+            assert call.kwargs["device_id"] == "bad+id"  # Exact invalid device_id
+            assert "error" in call.kwargs
         assert consumer.device_count == 0
 
     def test_non_dict_payload_raises(self, consumer: DiscoveryConsumer) -> None:

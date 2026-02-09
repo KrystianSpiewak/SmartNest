@@ -55,7 +55,10 @@ class TestClientInit:
             )
 
     def test_enables_paho_logger(self, client: SmartNestMQTTClient, mock_paho: MagicMock) -> None:
-        mock_paho.enable_logger.assert_called_once()
+        """enable_logger must pass _paho_logger object, not None."""
+        from backend.mqtt.client import _paho_logger  # noqa: PLC0415
+
+        mock_paho.enable_logger.assert_called_once_with(_paho_logger)
 
     def test_sets_reconnect_delay(self, client: SmartNestMQTTClient, mock_paho: MagicMock) -> None:
         mock_paho.reconnect_delay_set.assert_called_once_with(min_delay=1, max_delay=60)
@@ -172,14 +175,15 @@ class TestClientConnect:
     def test_connect_os_error_returns_false(
         self, client: SmartNestMQTTClient, mock_paho: MagicMock
     ) -> None:
-        """OSError during connect must be logged and return False."""
+        """OSError must log exact 'connection_initiation_failed' message."""
         mock_paho.connect.side_effect = OSError("Connection refused")
 
         with patch("backend.mqtt.client.logger.exception") as mock_exception:
             result = client.connect(timeout=0.1)
 
-            # Verify exception was logged
-            mock_exception.assert_called_once()
+            # Verify exact message code - kills message=None and string mutations
+            mock_exception.assert_called_once_with("connection_initiation_failed")
+            assert mock_exception.call_args[0][0] == "connection_initiation_failed"
 
         assert result is False
         mock_paho.loop_start.assert_not_called()
@@ -618,3 +622,69 @@ class TestClientCallbacks:
                 retain=False,
                 payload='{"test": true}',
             )
+
+
+class TestMessagePayloadDecoding:
+    """Tests for _on_message payload decode parameters."""
+
+    def test_payload_truncated_at_exactly_200_chars(
+        self, mock_paho: MagicMock, config: MQTTConfig
+    ) -> None:
+        """Payload must be truncated to exactly 200 characters."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            client = SmartNestMQTTClient(config)
+
+        # Create 250-character payload
+        long_payload = "x" * 250
+        msg = MagicMock(spec=mqtt.MQTTMessage)
+        msg.topic = "test"
+        msg.qos = 0
+        msg.retain = False
+        msg.payload = long_payload.encode("utf-8")
+
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            client._on_message(mock_paho, None, msg)
+            call_kwargs = mock_log.call_args.kwargs
+            # Verify exactly 200 characters, not 201 - kills [:201] mutation
+            assert len(call_kwargs["payload"]) == 200
+            assert call_kwargs["payload"] == "x" * 200
+
+    def test_payload_short_not_truncated(self, mock_paho: MagicMock, config: MQTTConfig) -> None:
+        """Payloads under 200 chars should not be truncated."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            client = SmartNestMQTTClient(config)
+
+        short_payload = "short message"
+        msg = MagicMock(spec=mqtt.MQTTMessage)
+        msg.topic = "test"
+        msg.qos = 0
+        msg.retain = False
+        msg.payload = short_payload.encode("utf-8")
+
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            client._on_message(mock_paho, None, msg)
+            call_kwargs = mock_log.call_args.kwargs
+            assert call_kwargs["payload"] == short_payload
+
+    def test_payload_decode_uses_replace_error_handler(
+        self, mock_paho: MagicMock, config: MQTTConfig
+    ) -> None:
+        """Invalid bytes must use 'replace' error handler, not 'strict'."""
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            client = SmartNestMQTTClient(config)
+
+        # Invalid UTF-8 sequence
+        invalid_utf8 = b"Hello \xff\xfe World"
+        msg = MagicMock(spec=mqtt.MQTTMessage)
+        msg.topic = "test"
+        msg.qos = 0
+        msg.retain = False
+        msg.payload = invalid_utf8
+
+        with patch("backend.mqtt.client.log_with_code") as mock_log:
+            # Should not raise - errors='replace' handles invalid bytes
+            client._on_message(mock_paho, None, msg)
+            call_kwargs = mock_log.call_args.kwargs
+            # Verify invalid bytes were replaced (with replacement character)
+            assert "Hello" in call_kwargs["payload"]
+            assert "World" in call_kwargs["payload"]

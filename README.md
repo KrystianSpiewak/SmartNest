@@ -187,6 +187,11 @@ Educational project for Champlain College SDEV435 course.
 
 ## Resources
 
+### Internal Documentation
+- [SmartNest Documentation Index](docs/index.md) - Complete file reference and command guide
+- [Device Implementation Guide](docs/device_implementation_guide.md) - How to create new device types
+- [Discovery Protocol Specification](docs/discovery_protocol.md) - MQTT device discovery protocol
+
 ### MQTT & IoT
 - [MQTT Protocol](https://mqtt.org/)
 - [Paho MQTT Python](https://github.com/eclipse/paho.mqtt.python)

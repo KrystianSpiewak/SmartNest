@@ -260,7 +260,7 @@ class TestMockSmartLightCommandLogging:
     """Tests for MockSmartLight command log events."""
 
     def test_invalid_json_logs_failure(self, light: MockSmartLight) -> None:
-        """Invalid JSON payload logs DEVICE_COMMAND_FAILED."""
+        """Invalid JSON must log with exact logger and error."""
         msg = MagicMock(spec=mqtt.MQTTMessage)
         msg.payload = b"not json"
         with patch("backend.devices.mock_light.log_with_code") as mock_log:
@@ -271,9 +271,16 @@ class TestMockSmartLightCommandLogging:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_FAILED
             ]
             assert len(failed_calls) == 1
+            call = failed_calls[0]
+            # Verify logger is not None and exact parameters
+            assert call.args[0] is not None
+            assert call.args[1] == "warning"
+            assert call.kwargs["device_id"] == "light_01"
+            assert "error" in call.kwargs
+            assert call.kwargs["error"] is not None
 
     def test_power_change_logs_command_sent(self, light: MockSmartLight) -> None:
-        """Power state change logs DEVICE_COMMAND_SENT."""
+        """Power state change must log exact command='power'."""
         msg = _make_message({"power": True})
         with patch("backend.devices.mock_light.log_with_code") as mock_log:
             light._handle_command(MagicMock(), None, msg)
@@ -283,10 +290,15 @@ class TestMockSmartLightCommandLogging:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_SENT
             ]
             assert len(sent_calls) == 1
-            assert sent_calls[0].kwargs["command"] == "power"
+            call = sent_calls[0]
+            # Verify logger is not None and exact parameters
+            assert call.args[0] is not None
+            assert call.args[1] == "info"
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["command"] == "power"  # Exact string, kills mutations
 
     def test_invalid_brightness_logs_failure(self, light: MockSmartLight) -> None:
-        """Invalid brightness value logs DEVICE_COMMAND_FAILED."""
+        """Invalid brightness must log exact command='brightness' and error."""
         msg = _make_message({"brightness": "invalid"})
         with patch("backend.devices.mock_light.log_with_code") as mock_log:
             light._handle_command(MagicMock(), None, msg)
@@ -296,6 +308,46 @@ class TestMockSmartLightCommandLogging:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_FAILED
             ]
             assert len(failed_calls) == 1
+            call = failed_calls[0]
+            # Verify logger and exact parameters
+            assert call.args[0] is not None
+            assert call.args[1] == "warning"
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["command"] == "brightness"  # Exact command name
+            assert "error" in call.kwargs
+            assert call.kwargs["error"] is not None
+
+    def test_brightness_change_logs_command_sent(self, light: MockSmartLight) -> None:
+        """Brightness change must log exact command='brightness'."""
+        msg = _make_message({"brightness": 50})
+        with patch("backend.devices.mock_light.log_with_code") as mock_log:
+            light._handle_command(MagicMock(), None, msg)
+            sent_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_SENT
+            ]
+            assert len(sent_calls) == 1
+            call = sent_calls[0]
+            assert call.args[0] is not None
+            assert call.args[1] == "info"
+            assert call.kwargs["command"] == "brightness"  # Kills command=None mutations
+
+    def test_color_temp_change_logs_command_sent(self, light: MockSmartLight) -> None:
+        """Color temp change must log exact command='color_temp'."""
+        msg = _make_message({"color_temp": 3000})
+        with patch("backend.devices.mock_light.log_with_code") as mock_log:
+            light._handle_command(MagicMock(), None, msg)
+            sent_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_SENT
+            ]
+            assert len(sent_calls) == 1
+            call = sent_calls[0]
+            assert call.args[0] is not None
+            assert call.args[1] == "info"
+            assert call.kwargs["command"] == "color_temp"  # Exact string
 
     def test_invalid_color_temp_logs_failure(self, light: MockSmartLight) -> None:
         """Invalid color_temp value logs DEVICE_COMMAND_FAILED."""

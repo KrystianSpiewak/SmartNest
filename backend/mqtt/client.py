@@ -231,6 +231,9 @@ class SmartNestMQTTClient:
 
         self._paho.loop_start()
 
+        # NOTE: Mutation testing - timeout=None mutant is expected survivor
+        # Testing timeout=None would cause tests to hang indefinitely
+        # This is defensive code that prevents infinite blocking
         if not self._connected.wait(timeout=timeout):
             log_with_code(
                 logger,

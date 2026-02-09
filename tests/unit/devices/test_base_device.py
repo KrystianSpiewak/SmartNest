@@ -151,17 +151,22 @@ class TestBaseDeviceInit:
             _ConcreteDevice(device_id="light+01")
 
     def test_logs_device_registered(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
-        """Constructor logs DEVICE_REGISTERED with device details."""
+        """Constructor must log DEVICE_REGISTERED with exact logger and parameters."""
         with (
             patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho),
             patch("backend.devices.base.log_with_code") as mock_log,
         ):
-            _ConcreteDevice(config=config)
+            _ConcreteDevice(device_id="test_id", name="Test", config=config)
+            # Verify call with exact parameters
             mock_log.assert_called_once()
             call_args = mock_log.call_args
+            # Verify logger is not None (kills logger=None mutation)
+            assert call_args.args[0] is not None
+            assert hasattr(call_args.args[0], "info")  # It's a logger-like object
+            assert call_args.args[1] == "info"
             assert call_args.args[2] == MessageCode.DEVICE_REGISTERED
-            assert call_args.kwargs["device_id"] == "test_device"
-            assert call_args.kwargs["device_type"] == "test_device"
+            assert call_args.kwargs["device_id"] == "test_id"  # Exact value
+            assert call_args.kwargs["device_type"] == "test_device"  # Exact value
 
 
 # -- Tests: Start --------------------------------------------------------------
@@ -248,7 +253,7 @@ class TestBaseDeviceStart:
     def test_start_logs_connection_failure(
         self, device: _ConcreteDevice, mock_paho: MagicMock
     ) -> None:
-        """start() logs DEVICE_REGISTRATION_FAILED on connection failure."""
+        """start() logs DEVICE_REGISTRATION_FAILED with exact error message."""
         mock_paho.connect.side_effect = OSError("Connection refused")
         with patch("backend.devices.base.log_with_code") as mock_log:
             device.start()
@@ -259,20 +264,36 @@ class TestBaseDeviceStart:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_REGISTRATION_FAILED
             ]
             assert len(failed_calls) == 1
+            call = failed_calls[0]
+            # Verify logger is not None (kills logger=None mutation)
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "error")  # It's a logger-like object
+            assert call.args[1] == "error"
+            assert call.kwargs["device_id"] == "test_device"
+            # Verify error message contains connection failure info
+            assert "error" in call.kwargs
+            assert call.kwargs["error"] is not None
 
     def test_start_logs_device_connected(
         self, device: _ConcreteDevice, mock_paho: MagicMock
     ) -> None:
-        """start() logs DEVICE_CONNECTED on successful connection."""
+        """start() logs DEVICE_CONNECTED with exact device_id parameter."""
         device.client.set_connected_for_test(True)
         with patch("backend.devices.base.log_with_code") as mock_log:
             device.start()
+            # Find the DEVICE_CONNECTED call and verify exact parameters
             connected_calls = [
                 c
                 for c in mock_log.call_args_list
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_CONNECTED
             ]
             assert len(connected_calls) == 1
+            call = connected_calls[0]
+            # Verify logger is not None (kills logger=None mutation)
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "info")  # It's a logger-like object
+            assert call.args[1] == "info"
+            assert call.kwargs["device_id"] == "test_device"  # Exact value
 
 
 # -- Tests: Stop ---------------------------------------------------------------
@@ -323,7 +344,7 @@ class TestBaseDeviceStop:
     def test_stop_logs_device_disconnected(
         self, device: _ConcreteDevice, mock_paho: MagicMock
     ) -> None:
-        """stop() logs DEVICE_DISCONNECTED with reason."""
+        """stop() logs DEVICE_DISCONNECTED with exact reason parameter."""
         device.client.set_connected_for_test(True)
         device.start()
         with patch("backend.devices.base.log_with_code") as mock_log:
@@ -334,22 +355,31 @@ class TestBaseDeviceStop:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_DISCONNECTED
             ]
             assert len(disconnect_calls) == 1
-            assert disconnect_calls[0].kwargs["reason"] == "test_shutdown"
+            call = disconnect_calls[0]
+            # Verify logger is not None (kills logger=None mutation)
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "info")  # It's a logger-like object
+            assert call.args[1] == "info"
+            assert call.kwargs["device_id"] == "test_device"
+            assert call.kwargs["reason"] == "test_shutdown"  # Exact value
 
     def test_stop_default_reason_is_shutdown(
         self, device: _ConcreteDevice, mock_paho: MagicMock
     ) -> None:
-        """stop() uses 'shutdown' as default reason."""
+        """stop() must use 'shutdown' as default reason, not None."""
         device.client.set_connected_for_test(True)
         device.start()
         with patch("backend.devices.base.log_with_code") as mock_log:
-            device.stop()
+            device.stop()  # No reason parameter
             disconnect_calls = [
                 c
                 for c in mock_log.call_args_list
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_DISCONNECTED
             ]
-            assert disconnect_calls[0].kwargs["reason"] == "shutdown"
+            call = disconnect_calls[0]
+            # Verify exact default value - kills reason=None mutation
+            assert call.kwargs["reason"] == "shutdown"
+            assert call.kwargs["reason"] is not None
 
 
 # -- Tests: Discovery ---------------------------------------------------------
@@ -431,7 +461,7 @@ class TestBaseDeviceStatePublishing:
     def test_publish_state_logs_on_success(
         self, device: _ConcreteDevice, mock_paho: MagicMock
     ) -> None:
-        """Successful state publish logs DEVICE_STATE_PUBLISHED."""
+        """Successful state publish logs DEVICE_STATE_PUBLISHED with exact topic."""
         device.client.set_connected_for_test(True)
         with patch("backend.devices.base.log_with_code") as mock_log:
             device._publish_state({"power": True})
@@ -441,7 +471,13 @@ class TestBaseDeviceStatePublishing:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_STATE_PUBLISHED
             ]
             assert len(published_calls) == 1
-            assert published_calls[0].kwargs["topic"] == "smartnest/device/test_device/state"
+            call = published_calls[0]
+            # Verify logger is not None (kills logger=None mutation)
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "debug")  # It's a logger-like object
+            assert call.args[1] == "debug"
+            assert call.kwargs["device_id"] == "test_device"
+            assert call.kwargs["topic"] == "smartnest/device/test_device/state"  # Exact topic
 
 
 # -- Tests: Command parsing ---------------------------------------------------

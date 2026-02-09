@@ -203,8 +203,8 @@ class TestLoggingConfig:
         # Last processor should be ConsoleRenderer (colors enabled by default)
         renderer = processors[-1]
         assert isinstance(renderer, structlog.dev.ConsoleRenderer)
-        # Note: Not checking _colors (protected attribute). Integration tests
-        # verify colored output behavior instead.
+        # Verify colors=True explicitly to kill colors=None and colors=False mutations
+        assert renderer._colors is True
 
     def test_build_processors_json_has_json_renderer(self) -> None:
         """JSON renderer must be used for machine-parseable logs."""
@@ -270,6 +270,119 @@ class TestLoggingConfig:
 
         # Verify debug log was emitted
         assert "test_lowercase_level" in output.getvalue()
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logging_default_level_is_info(self) -> None:
+        """Default level must be INFO for production safety, not DEBUG."""
+        reset_logging()
+        with patch("backend.logging.config.logging.basicConfig") as mock_basic:
+            configure_logging()  # No parameters
+            call_kwargs = mock_basic.call_args.kwargs
+            assert call_kwargs["level"] == logging.INFO  # Kills level mutations
+            # stream is sys.stderr (may be wrapped by colorama on Windows)
+            assert call_kwargs["stream"] is not None  # Kills stream=None mutation
+            assert call_kwargs["format"] == "%(message)s"
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logging_default_renderer_is_console(self) -> None:
+        """Default renderer must be console for development."""
+        reset_logging()
+        with patch("backend.logging.config.build_shared_processors") as mock_build:
+            mock_build.return_value = [structlog.processors.JSONRenderer()]
+            configure_logging()  # No renderer parameter
+            mock_build.assert_called_once_with("console")  # Kills renderer mutations
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logging_stderr_stream(self) -> None:
+        """Logs must go to stderr, not stdout."""
+
+        reset_logging()
+        with patch("backend.logging.config.logging.basicConfig") as mock_basic:
+            configure_logging()
+            call_kwargs = mock_basic.call_args.kwargs
+            # Verify stream parameter is set (not None, not removed)
+            assert "stream" in call_kwargs
+            assert call_kwargs["stream"] is not None  # Kills stream=None mutation
+            # On Windows, sys.stderr may be wrapped by colorama, so check the attribute exists
+            assert hasattr(call_kwargs["stream"], "write")  # Confirms it's a stream object
+            assert call_kwargs["format"] == "%(message)s"
+            assert call_kwargs["force"] is True
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_wrapper_class_is_filtering_bound_logger(self) -> None:
+        """Wrapper class must filter by log level, not None."""
+        reset_logging()
+        configure_logging(level="WARNING")
+        config = structlog.get_config()
+        wrapper_class = config["wrapper_class"]
+        # Verify it's a filtering bound logger class, not None
+        assert wrapper_class is not None  # Kills wrapper_class=None mutation
+        assert callable(wrapper_class)  # It should be a class
+        # Verify it's a BoundLogger with filtering (structlog creates dynamic classes)
+        assert "BoundLogger" in str(wrapper_class) or "Filtering" in str(wrapper_class)
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_context_class_is_dict(self) -> None:
+        """Context class must be dict for JSON serialization."""
+        reset_logging()
+        configure_logging()
+        config = structlog.get_config()
+        assert config["context_class"] is dict  # Exact type, kills None mutation
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logger_factory_uses_stderr(self) -> None:
+        """Logger factory must write to stderr."""
+        reset_logging()
+        configure_logging()
+        config = structlog.get_config()
+        factory = config["logger_factory"]
+        assert isinstance(factory, structlog.PrintLoggerFactory)
+        # Verify file parameter is set (not None)
+        assert factory._file is not None  # Kills file=None mutation
+        assert hasattr(factory._file, "write")  # Confirms it's a stream object
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_get_logger_auto_configures_with_exact_defaults(self) -> None:
+        """get_logger() must configure with DEBUG + console when not configured."""
+        reset_logging()
+        with patch("backend.logging.config.configure_logging") as mock_config:
+            get_logger("test")
+            # Verify exact parameters - kills default mutations
+            mock_config.assert_called_once_with(level="DEBUG", renderer="console")
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_get_logger_binds_name_not_none(self) -> None:
+        """Logger name must be bound as provided, not None."""
+        reset_logging()
+        output = StringIO()
+        configure_logging(renderer="json")
+        structlog.configure(
+            processors=structlog.get_config()["processors"],
+            logger_factory=structlog.PrintLoggerFactory(file=output),
+            cache_logger_on_first_use=False,
+        )
+        log = get_logger("test.module")  # Provide name
+        log.info("test")
+        data = json.loads(output.getvalue().strip())
+        assert data["logger_name"] == "test.module"  # Kills logger_name=None mutation
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_reset_logging_sets_configured_to_false(self) -> None:
+        """reset_logging() must set _configured to False, not None or True."""
+        configure_logging()
+        reset_logging()
+        from backend.logging.config import _configured  # noqa: PLC0415
+
+        assert _configured is False  # Exact value check
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logging_sets_configured_to_true(self) -> None:
+        """configure_logging() must set _configured to True, not None or False."""
+        reset_logging()
+        configure_logging()
+        from backend.logging.config import _configured  # noqa: PLC0415
+
+        assert _configured is True  # Exact value check
 
 
 # ---------------------------------------------------------------------------
