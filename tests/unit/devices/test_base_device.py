@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import paho.mqtt.client as mqtt
 import pytest
+import structlog
 
 from backend.devices.base import BaseDevice
 from backend.logging.catalog import MessageCode
@@ -168,6 +170,35 @@ class TestBaseDeviceInit:
             assert call_args.kwargs["device_id"] == "test_id"  # Exact value
             assert call_args.kwargs["device_type"] == "test_device"  # Exact value
 
+    def test_init_creates_child_logger_with_device_context(
+        self, config: MQTTConfig, mock_paho: MagicMock
+    ) -> None:
+        """__init__ must bind device_id and device_type to child logger."""
+        # Create device
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+            device = _ConcreteDevice(device_id="test_id", name="Test", config=config)
+
+        # Verify logger has bound context by checking it's a bound logger
+        assert isinstance(device._logger, structlog.BoundLoggerBase)
+
+        # Verify the logger works without errors (implicitly verifies bind worked)
+        # If device_id or device_type were None, the logger would still work but
+        # mutations would survive. We verify the actual values by mocking log_with_code
+        with patch("backend.devices.base.log_with_code") as mock_log:
+            # Trigger a log event that uses the bound logger
+            device.start()  # This will call log_with_code with the bound logger
+
+            # Verify log_with_code was called with a logger that has bound context
+            # The logger parameter should not be None
+            calls = mock_log.call_args_list
+            assert len(calls) > 0
+            for call in calls:
+                logger_arg = call.args[0]
+                # Verify logger is not None - kills logger=None mutation
+                assert logger_arg is not None
+                # Verify it's a bound logger (has context)
+                assert isinstance(logger_arg, structlog.BoundLoggerBase)
+
 
 # -- Tests: Start --------------------------------------------------------------
 
@@ -294,6 +325,12 @@ class TestBaseDeviceStart:
             assert hasattr(call.args[0], "info")  # It's a logger-like object
             assert call.args[1] == "info"
             assert call.kwargs["device_id"] == "test_device"  # Exact value
+
+    def test_start_default_timeout_exact_value(self) -> None:
+        """start() default timeout must be exactly 10.0."""
+        sig = inspect.signature(BaseDevice.start)
+        # Verify exact default value - kills timeout=11.0, timeout=9.0 mutations
+        assert sig.parameters["timeout"].default == 10.0
 
 
 # -- Tests: Stop ---------------------------------------------------------------

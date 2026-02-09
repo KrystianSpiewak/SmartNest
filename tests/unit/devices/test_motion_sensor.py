@@ -349,6 +349,154 @@ class TestMotionSensorCommandHandling:
         assert sensor.motion_detected is False
 
 
+# -- Tests: Command logging ----------------------------------------------------
+
+
+class TestMotionSensorCommandLogging:
+    """Tests for command log events with exact logger and parameter verification."""
+
+    def test_trigger_command_logs_with_exact_params(
+        self, sensor: MockMotionSensor, mock_paho: MagicMock
+    ) -> None:
+        """Trigger command must log with non-None logger and command='trigger'."""
+        sensor._client.set_connected_for_test(True)
+        msg = _make_message({"trigger": True})
+        with (
+            patch("backend.devices.mock_motion_sensor.threading.Timer") as mock_cls,
+            patch("backend.devices.mock_motion_sensor.log_with_code") as mock_log,
+        ):
+            mock_cls.return_value = MagicMock()
+            sensor._handle_command(MagicMock(), None, msg)
+            sent_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_SENT
+            ]
+            assert len(sent_calls) == 1
+            call = sent_calls[0]
+            # Verify logger is not None - kills logger=None mutations
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "info")
+            assert call.args[1] == "info"
+            assert call.kwargs["command"] == "trigger"  # Exact string
+            assert call.kwargs["device_id"] == "motion_01"
+
+    def test_clear_command_logs_with_exact_params(
+        self, sensor: MockMotionSensor, mock_paho: MagicMock
+    ) -> None:
+        """Clear command must log with non-None logger and command='clear'."""
+        sensor._client.set_connected_for_test(True)
+        sensor._motion_detected = True
+        msg = _make_message({"clear": True})
+        with patch("backend.devices.mock_motion_sensor.log_with_code") as mock_log:
+            sensor._handle_command(MagicMock(), None, msg)
+            sent_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_SENT
+            ]
+            assert len(sent_calls) == 1
+            call = sent_calls[0]
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "info")
+            assert call.args[1] == "info"
+            assert call.kwargs["command"] == "clear"  # Exact string
+            assert call.kwargs["device_id"] == "motion_01"
+
+    def test_invalid_json_logs_with_logger(self, sensor: MockMotionSensor) -> None:
+        """Invalid JSON must log with non-None logger."""
+        msg = MagicMock(spec=mqtt.MQTTMessage)
+        msg.payload = b"!not-json!"
+        with patch("backend.devices.mock_motion_sensor.log_with_code") as mock_log:
+            sensor._handle_command(MagicMock(), None, msg)
+            failed_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_COMMAND_FAILED
+            ]
+            assert len(failed_calls) == 1
+            call = failed_calls[0]
+            # Verify logger is not None
+            assert call.args[0] is not None
+            assert call.args[1] == "warning"
+            assert call.kwargs["command"] == "unknown"
+            assert "error" in call.kwargs
+
+
+# -- Tests: State publishing methods -------------------------------------------
+
+
+class TestMotionSensorStatePublishLogging:
+    """Tests for state publishing methods with logger verification."""
+
+    def test_trigger_motion_logs_with_exact_params(
+        self, sensor: MockMotionSensor, mock_paho: MagicMock
+    ) -> None:
+        """trigger_motion must log SENSOR_DATA_PUBLISHED with non-None logger."""
+        sensor._client.set_connected_for_test(True)
+        with (
+            patch("backend.devices.mock_motion_sensor.threading.Timer") as mock_cls,
+            patch("backend.devices.mock_motion_sensor.log_with_code") as mock_log,
+        ):
+            mock_cls.return_value = MagicMock()
+            sensor.trigger_motion()
+            # Find sensor data published log
+            calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_SENSOR_PUBLISHED
+            ]
+            assert len(calls) == 1
+            call = calls[0]
+            # Verify logger is not None - kills logger=None mutations
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "debug")
+            assert call.args[1] == "debug"
+            assert call.kwargs["device_id"] == "motion_01"
+            assert call.kwargs["topic"] == "smartnest/sensor/motion_01/data"
+
+    def test_clear_motion_logs_with_exact_params(
+        self, sensor: MockMotionSensor, mock_paho: MagicMock
+    ) -> None:
+        """clear_motion must log SENSOR_DATA_PUBLISHED with non-None logger."""
+        sensor._client.set_connected_for_test(True)
+        sensor._motion_detected = True
+        with patch("backend.devices.mock_motion_sensor.log_with_code") as mock_log:
+            sensor.clear_motion()
+            # Find sensor data published log
+            calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_SENSOR_PUBLISHED
+            ]
+            assert len(calls) == 1
+            call = calls[0]
+            assert call.args[0] is not None
+            assert hasattr(call.args[0], "debug")
+            assert call.args[1] == "debug"
+            assert call.kwargs["device_id"] == "motion_01"
+            assert call.kwargs["topic"] == "smartnest/sensor/motion_01/data"
+
+    def test_publish_sensor_state_logs_with_exact_params(
+        self, sensor: MockMotionSensor, mock_paho: MagicMock
+    ) -> None:
+        """_publish_sensor_state must log with non-None logger when successful."""
+        sensor._client.set_connected_for_test(True)
+        sensor._motion_detected = True
+        with patch("backend.devices.mock_motion_sensor.log_with_code") as mock_log:
+            sensor._publish_sensor_state()
+            calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_SENSOR_PUBLISHED
+            ]
+            assert len(calls) == 1
+            call = calls[0]
+            assert call.args[0] is not None
+            assert call.args[1] == "debug"
+            assert call.kwargs["topic"] == "smartnest/sensor/motion_01/data"
+
+
 # -- Tests: Discovery ----------------------------------------------------------
 
 

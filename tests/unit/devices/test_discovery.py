@@ -405,3 +405,20 @@ class TestDiscoveryConsumerRegistration:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_REGISTRATION_FAILED
             ]
             assert len(failed_calls) == 1
+
+    def test_register_device_invalid_uses_unknown_fallback(
+        self, consumer: DiscoveryConsumer
+    ) -> None:
+        """Missing device_id must use 'unknown' fallback, not None."""
+        with patch("backend.mqtt.discovery.log_with_code") as mock_log:
+            consumer._register_device({"name": "Test", "device_type": "test"})  # Missing device_id
+            failed_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_REGISTRATION_FAILED
+            ]
+            assert len(failed_calls) == 1
+            call = failed_calls[0]
+            # Verify device_id fallback is "unknown", not None
+            assert call.kwargs["device_id"] == "unknown"  # Kills device_id=None mutation
+            assert call.kwargs["device_id"] is not None

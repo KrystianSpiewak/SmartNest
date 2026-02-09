@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from io import StringIO
@@ -282,6 +283,12 @@ class TestLoggingConfig:
             # stream is sys.stderr (may be wrapped by colorama on Windows)
             assert call_kwargs["stream"] is not None  # Kills stream=None mutation
             assert call_kwargs["format"] == "%(message)s"
+
+    def test_configure_logging_default_level_exact_string(self) -> None:
+        """Default level parameter must be exact string 'INFO', not variations."""
+        sig = inspect.signature(configure_logging)
+        # Verify exact default value - kills level="info", level="XXINFOXX" mutations
+        assert sig.parameters["level"].default == "INFO"
 
     @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_logging_default_renderer_is_console(self) -> None:

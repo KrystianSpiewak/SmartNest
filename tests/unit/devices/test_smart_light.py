@@ -374,6 +374,74 @@ class TestMockSmartLightCommandLogging:
             assert len(updated_calls) == 1
 
 
+# -- Tests: _apply_command return value ---------------------------------------
+
+
+class TestMockSmartLightApplyCommand:
+    """Tests for MockSmartLight._apply_command() return value."""
+
+    def test_apply_command_returns_true_when_power_changes(self, light: MockSmartLight) -> None:
+        """_apply_command must return True when power changes."""
+        result = light._apply_command({"power": True})
+        assert result is True  # Kills changed=False, changed=None mutations
+        assert light.power is True
+
+    def test_apply_command_returns_false_when_no_change(self, light: MockSmartLight) -> None:
+        """_apply_command must return False when state unchanged."""
+        result = light._apply_command({"power": False})  # Already False
+        assert result is False  # Kills changed=True, changed=None mutations
+        assert light.power is False
+
+    def test_apply_command_returns_true_when_brightness_changes(
+        self, light: MockSmartLight
+    ) -> None:
+        """_apply_command must return True when brightness changes."""
+        result = light._apply_command({"brightness": 50})
+        assert result is True  # Kills changed=False mutation
+        assert light.brightness == 50
+
+    def test_apply_command_returns_false_when_brightness_unchanged(
+        self, light: MockSmartLight
+    ) -> None:
+        """_apply_command returns False when brightness stays same."""
+        result = light._apply_command({"brightness": 100})  # Already 100
+        assert result is False
+        assert light.brightness == 100
+
+    def test_apply_command_returns_true_when_color_temp_changes(
+        self, light: MockSmartLight
+    ) -> None:
+        """_apply_command must return True when color temp changes."""
+        result = light._apply_command({"color_temp": 3000})
+        assert result is True
+        assert light.color_temp == 3000
+
+    def test_apply_command_returns_false_when_color_temp_unchanged(
+        self, light: MockSmartLight
+    ) -> None:
+        """_apply_command returns False when color temp stays same."""
+        result = light._apply_command({"color_temp": 4000})  # Already 4000
+        assert result is False
+
+    def test_apply_command_multiple_changes_returns_true(self, light: MockSmartLight) -> None:
+        """_apply_command returns True if ANY field changes."""
+        result = light._apply_command({"power": True, "brightness": 75})
+        assert result is True
+        assert light.power is True
+        assert light.brightness == 75
+
+    def test_apply_command_empty_payload_returns_false(self, light: MockSmartLight) -> None:
+        """_apply_command with empty payload returns False."""
+        result = light._apply_command({})
+        assert result is False  # No changes
+
+    def test_apply_command_invalid_brightness_returns_false(self, light: MockSmartLight) -> None:
+        """_apply_command with invalid brightness returns False (no state change)."""
+        result = light._apply_command({"brightness": "invalid"})
+        assert result is False
+        assert light.brightness == 100  # Unchanged
+
+
 # -- Tests: Discovery payload -------------------------------------------------
 
 
