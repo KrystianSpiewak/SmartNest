@@ -31,6 +31,27 @@ DATABASE_PATH = Path(__file__).parent.parent.parent / "data" / "smartnest.db"
 _initialized = False
 _init_lock = asyncio.Lock()
 
+# SQL query constants
+SQL_COUNT_USERS = "SELECT COUNT(*) FROM users"
+SQL_ENABLE_FOREIGN_KEYS = "PRAGMA foreign_keys = ON"
+SQL_CHECK_FOREIGN_KEYS = "PRAGMA foreign_keys"
+SQL_INSERT_USER = """INSERT INTO users (username, email, password_hash, role)
+VALUES (?, ?, ?, ?)"""
+
+# Encoding constants
+UTF8_ENCODING = "utf-8"
+
+# Assertion messages
+ASSERT_COUNT_RETURNS_ROW = "COUNT(*) should always return a row"
+
+# Error messages
+ERROR_ADMIN_CREDENTIALS_NOT_CONFIGURED = (
+    "Admin credentials not configured. Set environment variables:\n"
+    "  SMARTNEST_ADMIN_USERNAME=your_username\n"
+    "  SMARTNEST_ADMIN_EMAIL=your_email@domain.com\n"
+    "  SMARTNEST_ADMIN_PASSWORD=your_secure_password"
+)
+
 
 async def _create_default_admin_user(conn: aiosqlite.Connection) -> None:
     """Create default admin user if no users exist.
@@ -52,9 +73,9 @@ async def _create_default_admin_user(conn: aiosqlite.Connection) -> None:
 
     # Check if any users exist
     async with conn.cursor() as cursor:
-        await cursor.execute("SELECT COUNT(*) FROM users")
+        await cursor.execute(SQL_COUNT_USERS)
         row = await cursor.fetchone()
-        assert row is not None, "COUNT(*) should always return a row"
+        assert row is not None, ASSERT_COUNT_RETURNS_ROW
         user_count = row[0]
 
         if user_count > 0:
@@ -62,29 +83,21 @@ async def _create_default_admin_user(conn: aiosqlite.Connection) -> None:
 
         # Validate admin credentials are configured
         if not settings.admin_username or not settings.admin_email or not settings.admin_password:
-            raise ValueError(
-                "Admin credentials not configured. Set environment variables:\n"
-                "  SMARTNEST_ADMIN_USERNAME=your_username\n"
-                "  SMARTNEST_ADMIN_EMAIL=your_email@domain.com\n"
-                "  SMARTNEST_ADMIN_PASSWORD=your_secure_password"
-            )
+            raise ValueError(ERROR_ADMIN_CREDENTIALS_NOT_CONFIGURED)
 
         # Hash password with bcrypt
         password_hash = bcrypt.hashpw(
-            settings.admin_password.encode("utf-8"),
+            settings.admin_password.encode(UTF8_ENCODING),
             bcrypt.gensalt(rounds=settings.bcrypt_rounds),
         )
 
         # Insert default admin user
         await cursor.execute(
-            """
-            INSERT INTO users (username, email, password_hash, role)
-            VALUES (?, ?, ?, ?)
-            """,
+            SQL_INSERT_USER,
             (
                 settings.admin_username,
                 settings.admin_email,
-                password_hash.decode("utf-8"),
+                password_hash.decode(UTF8_ENCODING),
                 "admin",
             ),
         )
@@ -112,7 +125,7 @@ async def init_database() -> None:
         # Create database and execute schema
         async with aiosqlite.connect(DATABASE_PATH) as conn:
             # Enable foreign keys
-            await conn.execute("PRAGMA foreign_keys = ON")
+            await conn.execute(SQL_ENABLE_FOREIGN_KEYS)
 
             # Execute schema DDL (CREATE TABLE IF NOT EXISTS)
             await conn.executescript(SCHEMA_DDL)

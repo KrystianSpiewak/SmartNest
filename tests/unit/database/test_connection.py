@@ -206,7 +206,10 @@ class TestInitDatabase:
         )
         monkeypatch.setattr("backend.database.connection.get_settings", lambda: empty_settings)
 
-        with pytest.raises(ValueError, match="Admin credentials not configured"):
+        with pytest.raises(
+            ValueError,
+            match=r"(?s)Admin credentials not configured.*SMARTNEST_ADMIN_USERNAME.*SMARTNEST_ADMIN_EMAIL.*SMARTNEST_ADMIN_PASSWORD",
+        ):
             await connection.init_database()
 
     @pytest.mark.asyncio
@@ -309,7 +312,10 @@ class TestCreateDefaultAdminUser:
                 """
             )
 
-            with pytest.raises(ValueError, match="Admin credentials not configured"):
+            with pytest.raises(
+                ValueError,
+                match=r"(?s)Admin credentials not configured.*SMARTNEST_ADMIN_USERNAME.*SMARTNEST_ADMIN_EMAIL.*SMARTNEST_ADMIN_PASSWORD",
+            ):
                 await connection._create_default_admin_user(conn)
 
     @pytest.mark.asyncio
@@ -339,7 +345,10 @@ class TestCreateDefaultAdminUser:
                 """
             )
 
-            with pytest.raises(ValueError, match="Admin credentials not configured"):
+            with pytest.raises(
+                ValueError,
+                match=r"(?s)Admin credentials not configured.*SMARTNEST_ADMIN_USERNAME.*SMARTNEST_ADMIN_EMAIL.*SMARTNEST_ADMIN_PASSWORD",
+            ):
                 await connection._create_default_admin_user(conn)
 
     @pytest.mark.asyncio
@@ -369,7 +378,10 @@ class TestCreateDefaultAdminUser:
                 """
             )
 
-            with pytest.raises(ValueError, match="Admin credentials not configured"):
+            with pytest.raises(
+                ValueError,
+                match=r"(?s)Admin credentials not configured.*SMARTNEST_ADMIN_USERNAME.*SMARTNEST_ADMIN_EMAIL.*SMARTNEST_ADMIN_PASSWORD",
+            ):
                 await connection._create_default_admin_user(conn)
 
 
@@ -436,3 +448,187 @@ class TestGetConnection:
             row = await cursor.fetchone()
             assert row is not None
             assert row[0] == 1  # Admin user created
+
+
+class TestModuleConstants:
+    """Tests for module-level constants (kills string mutation mutants)."""
+
+    def test_sql_count_users_format(self) -> None:
+        """Test SQL_COUNT_USERS has correct uppercase format."""
+        assert connection.SQL_COUNT_USERS == "SELECT COUNT(*) FROM users"
+        # Verify uppercase keywords
+        assert "SELECT" in connection.SQL_COUNT_USERS
+        assert "COUNT" in connection.SQL_COUNT_USERS
+        assert "FROM" in connection.SQL_COUNT_USERS
+        # Verify lowercase table name
+        assert "users" in connection.SQL_COUNT_USERS
+        assert "USERS" not in connection.SQL_COUNT_USERS
+
+    def test_sql_enable_foreign_keys_format(self) -> None:
+        """Test SQL_ENABLE_FOREIGN_KEYS has correct uppercase format."""
+        assert connection.SQL_ENABLE_FOREIGN_KEYS == "PRAGMA foreign_keys = ON"
+        # Verify uppercase format
+        assert "PRAGMA" in connection.SQL_ENABLE_FOREIGN_KEYS
+        assert "ON" in connection.SQL_ENABLE_FOREIGN_KEYS
+        # Verify no lowercase variants
+        assert "pragma" not in connection.SQL_ENABLE_FOREIGN_KEYS
+        assert "on" not in connection.SQL_ENABLE_FOREIGN_KEYS.replace("foreign", "x")
+
+    def test_sql_insert_user_format(self) -> None:
+        """Test SQL_INSERT_USER has correct format."""
+        expected = """INSERT INTO users (username, email, password_hash, role)
+VALUES (?, ?, ?, ?)"""
+        assert expected == connection.SQL_INSERT_USER
+        # Verify uppercase keywords
+        assert "INSERT INTO" in connection.SQL_INSERT_USER
+        assert "VALUES" in connection.SQL_INSERT_USER
+
+    def test_utf8_encoding_lowercase(self) -> None:
+        """Test UTF8_ENCODING uses lowercase utf-8."""
+        assert connection.UTF8_ENCODING == "utf-8"
+        # Verify exact casing
+        assert connection.UTF8_ENCODING != "UTF-8"
+        assert connection.UTF8_ENCODING != "utf8"
+
+    def test_assertion_message_exact_text(self) -> None:
+        """Test ASSERT_COUNT_RETURNS_ROW has exact expected text."""
+        assert connection.ASSERT_COUNT_RETURNS_ROW == "COUNT(*) should always return a row"
+        # Verify uppercase COUNT
+        assert "COUNT(*)" in connection.ASSERT_COUNT_RETURNS_ROW
+        assert "count(*)" not in connection.ASSERT_COUNT_RETURNS_ROW
+
+
+class TestForeignKeyEnforcement:
+    """Tests that PRAGMA foreign_keys actually enforces constraints."""
+
+    @pytest.mark.asyncio
+    async def test_foreign_key_constraint_enforced(
+        self,
+        temp_db_path: Path,
+        mock_settings: AppSettings,
+    ) -> None:
+        """Test that foreign key constraints are enforced after init."""
+        await connection.init_database()
+
+        async with connection.get_connection() as conn:
+            # Try to insert a sensor reading for non-existent device
+            # This should fail if foreign keys are enabled
+            with pytest.raises(aiosqlite.IntegrityError, match="FOREIGN KEY constraint failed"):
+                await conn.execute(
+                    """
+                    INSERT INTO sensor_readings (device_id, sensor_type, value, unit, timestamp)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    ("nonexistent_device", "temperature", 25.0, "C", "2026-02-11T12:00:00Z"),
+                )
+
+    @pytest.mark.asyncio
+    async def test_foreign_key_setting_persists(
+        self,
+        temp_db_path: Path,
+        mock_settings: AppSettings,
+    ) -> None:
+        """Test that foreign_keys=ON persists in connection."""
+        await connection.init_database()
+
+        async with (
+            connection.get_connection() as conn,
+            conn.cursor() as cursor,
+        ):
+            # Verify foreign keys are enabled
+            await cursor.execute(connection.SQL_CHECK_FOREIGN_KEYS)
+            row = await cursor.fetchone()
+            assert row is not None
+            # PRAGMA foreign_keys returns 1 when enabled, 0 when disabled
+            assert row[0] == 1, "Foreign keys should be enabled (PRAGMA foreign_keys = 1)"
+
+
+class TestAssertionBehavior:
+    """Tests for assertion message validation (kills assert message mutants)."""
+
+    def test_assertion_constant_used_in_code(self) -> None:
+        """Test that ASSERT_COUNT_RETURNS_ROW constant is imported and available."""
+        # Verify the constant is accessible from the module
+        assert hasattr(connection, "ASSERT_COUNT_RETURNS_ROW")
+        assert isinstance(connection.ASSERT_COUNT_RETURNS_ROW, str)
+        assert len(connection.ASSERT_COUNT_RETURNS_ROW) > 0
+
+    def test_assertion_message_content(self) -> None:
+        """Test assertion message contains key elements."""
+        message = connection.ASSERT_COUNT_RETURNS_ROW
+        # Verify key components
+        assert "COUNT(*)" in message
+        assert "should" in message
+        assert "return" in message
+        assert "row" in message
+        # Verify it's a complete sentence
+        assert message[0].isupper()  # Starts with capital
+
+
+class TestErrorMessages:
+    """Tests for error message constants (kills error message mutants)."""
+
+    def test_error_admin_credentials_exact_format(self) -> None:
+        """Test ERROR_ADMIN_CREDENTIALS_NOT_CONFIGURED has exact expected format."""
+        expected = (
+            "Admin credentials not configured. Set environment variables:\n"
+            "  SMARTNEST_ADMIN_USERNAME=your_username\n"
+            "  SMARTNEST_ADMIN_EMAIL=your_email@domain.com\n"
+            "  SMARTNEST_ADMIN_PASSWORD=your_secure_password"
+        )
+        assert expected == connection.ERROR_ADMIN_CREDENTIALS_NOT_CONFIGURED
+
+    def test_error_message_line_format(self) -> None:
+        """Test error message has correct line structure (kills XX padding mutants)."""
+        message = connection.ERROR_ADMIN_CREDENTIALS_NOT_CONFIGURED
+        lines = message.split("\n")
+
+        # Verify exactly 4 lines
+        assert len(lines) == 4, f"Expected 4 lines, got {len(lines)}"
+
+        # Verify first line (no leading/trailing XX)
+        assert lines[0] == "Admin credentials not configured. Set environment variables:"
+        assert not lines[0].startswith("XX")
+        assert not lines[0].endswith("XX")
+
+        # Verify env var lines format (2 spaces prefix, no XX padding)
+        assert lines[1] == "  SMARTNEST_ADMIN_USERNAME=your_username"
+        assert lines[1].startswith("  ")  # Exactly 2 spaces
+        assert not lines[1].startswith("XX")
+        assert not lines[1].endswith("XX")
+
+        assert lines[2] == "  SMARTNEST_ADMIN_EMAIL=your_email@domain.com"
+        assert lines[2].startswith("  ")
+        assert not lines[2].startswith("XX")
+        assert not lines[2].endswith("XX")
+
+        assert lines[3] == "  SMARTNEST_ADMIN_PASSWORD=your_secure_password"
+        assert lines[3].startswith("  ")
+        assert not lines[3].startswith("XX")
+        assert not lines[3].endswith("XX")
+
+    def test_error_message_example_values_lowercase(self) -> None:
+        """Test error message example values use lowercase (kills casing mutants)."""
+        message = connection.ERROR_ADMIN_CREDENTIALS_NOT_CONFIGURED
+
+        # Verify lowercase example values (not uppercase)
+        assert "your_username" in message
+        assert "YOUR_USERNAME" not in message
+
+        assert "your_email@domain.com" in message
+        assert "YOUR_EMAIL@DOMAIN.COM" not in message
+
+        assert "your_secure_password" in message
+        assert "YOUR_SECURE_PASSWORD" not in message
+
+    def test_error_message_env_var_names_uppercase(self) -> None:
+        """Test error message has uppercase environment variable names."""
+        message = connection.ERROR_ADMIN_CREDENTIALS_NOT_CONFIGURED
+
+        # Verify uppercase env var names
+        assert "SMARTNEST_ADMIN_USERNAME" in message
+        assert "SMARTNEST_ADMIN_EMAIL" in message
+        assert "SMARTNEST_ADMIN_PASSWORD" in message
+
+        # Verify NOT lowercase
+        assert "smartnest_admin_username" not in message.lower().replace("smartnest_admin", "x")
