@@ -55,10 +55,28 @@ class AppSettings(BaseSettings):
     database_url: str = "smartnest.db"
 
     # -- Security --------------------------------------------------------------
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str = Field(
+        default="",
+        description="JWT signing secret - MUST be set in production",
+    )
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = Field(default=15, gt=0)
     bcrypt_rounds: int = Field(default=12, ge=4, le=31)
+
+    # -- Default Admin User ----------------------------------------------------
+    # These are ONLY used if users table is empty during init_database()
+    admin_username: str = Field(
+        default="",
+        description="Initial admin username (required for first setup)",
+    )
+    admin_email: str = Field(
+        default="",
+        description="Initial admin email (required for first setup)",
+    )
+    admin_password: str = Field(
+        default="",
+        description="Initial admin password (required for first setup)",
+    )
 
     # -- Server ----------------------------------------------------------------
     host: str = "127.0.0.1"

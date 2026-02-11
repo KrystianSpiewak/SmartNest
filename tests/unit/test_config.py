@@ -11,32 +11,42 @@ from backend.config import AppSettings, get_settings
 class TestAppSettingsDefaults:
     """Tests for default settings values."""
 
-    def test_default_log_level(self) -> None:
-        settings = AppSettings()
+    def test_default_log_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Clear environment to test true defaults
+        monkeypatch.delenv("SMARTNEST_LOG_LEVEL", raising=False)
+        settings = AppSettings(
+            _env_file=None  # type: ignore[call-arg]  # Disable .env file loading for test
+        )
         assert settings.log_level == "INFO"
 
-    def test_default_log_renderer(self) -> None:
-        settings = AppSettings()
+    def test_default_log_renderer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SMARTNEST_LOG_RENDERER", raising=False)
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.log_renderer == "console"
 
-    def test_default_mqtt_broker(self) -> None:
-        settings = AppSettings()
+    def test_default_mqtt_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SMARTNEST_MQTT_BROKER", raising=False)
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.mqtt_broker == "localhost"
 
-    def test_default_mqtt_port(self) -> None:
-        settings = AppSettings()
+    def test_default_mqtt_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SMARTNEST_MQTT_PORT", raising=False)
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.mqtt_port == 1883
 
-    def test_default_database_url(self) -> None:
-        settings = AppSettings()
+    def test_default_database_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SMARTNEST_DATABASE_URL", raising=False)
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.database_url == "smartnest.db"
 
-    def test_default_jwt_expire_minutes(self) -> None:
-        settings = AppSettings()
+    def test_default_jwt_expire_minutes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SMARTNEST_JWT_EXPIRE_MINUTES", raising=False)
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.jwt_expire_minutes == 15
 
-    def test_default_server_host(self) -> None:
-        settings = AppSettings()
+    def test_default_server_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SMARTNEST_HOST", raising=False)
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.host == "127.0.0.1"
 
 
@@ -102,7 +112,8 @@ class TestAppSettingsFromEnv:
     def test_env_prefix_required(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Variables without SMARTNEST_ prefix are ignored."""
         monkeypatch.setenv("LOG_LEVEL", "ERROR")
-        settings = AppSettings()
+        monkeypatch.delenv("SMARTNEST_LOG_LEVEL", raising=False)
+        settings = AppSettings(_env_file=None)  # type: ignore[call-arg]  # Disable .env file
         assert settings.log_level == "INFO"  # default, not "ERROR"
 
 

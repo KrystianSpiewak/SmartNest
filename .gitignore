@@ -34,3 +34,4 @@ node_modules/
 
 # Docker
 smartnest-mqtt-data/
+data/smartnest.db
