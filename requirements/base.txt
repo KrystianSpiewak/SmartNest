@@ -13,6 +13,7 @@ uvicorn[standard]>=0.40.0
 pydantic>=2.12.0
 pydantic-settings>=2.12.0
 python-dotenv>=1.2.0
+email-validator>=2.0.0  # Required for Pydantic EmailStr validation
 
 # Database
 aiosqlite>=0.22.0
