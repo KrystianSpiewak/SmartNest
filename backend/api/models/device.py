@@ -18,6 +18,7 @@ class DeviceBase(BaseModel):
     device_type: str = Field(..., min_length=1, max_length=50)
     manufacturer: str | None = Field(None, max_length=100)
     model: str | None = Field(None, max_length=100)
+    firmware_version: str | None = Field(None, max_length=50)
     capabilities: list[str] = Field(default_factory=list)
 
 

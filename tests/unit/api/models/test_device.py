@@ -18,6 +18,7 @@ class TestDeviceBase:
         device = DeviceBase(
             friendly_name="Living Room Light",
             device_type="light",
+            firmware_version=None,
             manufacturer="Philips",
             model="Hue White",
             capabilities=["power", "brightness"],
@@ -91,6 +92,7 @@ class TestDeviceCreate:
             mqtt_topic="smartnest/device/light-001/command",
             manufacturer="IKEA",
             model="Tradfri",
+            firmware_version="1.0.0",
             capabilities=["power", "brightness", "color_temp"],
         )
 
@@ -138,6 +140,7 @@ class TestDeviceResponse:
             mqtt_topic="smartnest/device/light-001/command",
             manufacturer="Philips",
             model="Hue",
+            firmware_version="2.0.0",
             capabilities=["power"],
             status="online",
             created_at=now,
