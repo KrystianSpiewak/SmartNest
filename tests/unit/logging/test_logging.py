@@ -234,19 +234,29 @@ class TestLoggingConfig:
 
     @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_logging_defaults(self) -> None:
-        """Default level must be INFO for production safety."""
+        """Root logger at WARNING, backend.* namespace at INFO by default."""
         reset_logging()
 
-        # Patch logging.basicConfig to verify default level
-        with patch("backend.logging.config.logging.basicConfig") as mock_basic:
+        # Patch logging to verify root logger and backend namespace
+        with (
+            patch("backend.logging.config.logging.basicConfig") as mock_basic,
+            patch("backend.logging.config.logging.getLogger") as mock_get_logger,
+        ):
+            mock_backend_logger = MagicMock()
+            mock_get_logger.return_value = mock_backend_logger
+
             configure_logging()  # No args - use defaults
 
-            # Verify INFO level was used (not DEBUG)
+            # Root logger set to WARNING to suppress third-party debug noise
             mock_basic.assert_called_once()
             call_kwargs = mock_basic.call_args.kwargs
-            assert call_kwargs["level"] == logging.INFO
+            assert call_kwargs["level"] == logging.WARNING
             assert call_kwargs["format"] == "%(message)s"
             assert call_kwargs["force"] is True
+
+            # Backend namespace set to INFO (the requested default level)
+            mock_get_logger.assert_called_once_with("backend")
+            mock_backend_logger.setLevel.assert_called_once_with(logging.INFO)
 
         config = structlog.get_config()
         # Verify cache is enabled
@@ -274,15 +284,26 @@ class TestLoggingConfig:
 
     @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_logging_default_level_is_info(self) -> None:
-        """Default level must be INFO for production safety, not DEBUG."""
+        """Backend namespace default must be INFO, root at WARNING."""
         reset_logging()
-        with patch("backend.logging.config.logging.basicConfig") as mock_basic:
+        with (
+            patch("backend.logging.config.logging.basicConfig") as mock_basic,
+            patch("backend.logging.config.logging.getLogger") as mock_get_logger,
+        ):
+            mock_backend_logger = MagicMock()
+            mock_get_logger.return_value = mock_backend_logger
+
             configure_logging()  # No parameters
+
+            # Root logger always WARNING to suppress third-party noise
             call_kwargs = mock_basic.call_args.kwargs
-            assert call_kwargs["level"] == logging.INFO  # Kills level mutations
+            assert call_kwargs["level"] == logging.WARNING
             # stream is sys.stderr (may be wrapped by colorama on Windows)
             assert call_kwargs["stream"] is not None  # Kills stream=None mutation
             assert call_kwargs["format"] == "%(message)s"
+
+            # Backend namespace gets the requested level (INFO by default)
+            mock_backend_logger.setLevel.assert_called_once_with(logging.INFO)
 
     def test_configure_logging_default_level_exact_string(self) -> None:
         """Default level parameter must be exact string 'INFO', not variations."""

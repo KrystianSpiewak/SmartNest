@@ -101,13 +101,17 @@ def configure_logging(
 
     numeric_level = getattr(logging, level.upper(), logging.INFO)
 
-    # Configure stdlib root logger so Paho and other libs flow through
+    # Configure stdlib root logger at WARNING to suppress third-party debug noise
+    # (e.g., aiosqlite internal operations, paho.mqtt verbose logs)
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stderr,
-        level=numeric_level,
+        level=logging.WARNING,  # Root logger stays quiet
         force=True,
     )
+
+    # Enable requested level only for SmartNest code (backend.* namespace)
+    logging.getLogger("backend").setLevel(numeric_level)
 
     shared_processors = build_shared_processors(renderer)
 
