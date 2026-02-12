@@ -235,7 +235,7 @@ class MockTemperatureSensor(BaseDevice):
 
     def _simulate_drift(self) -> None:
         """Apply random walk drift to the temperature."""
-        drift = random.uniform(-_DRIFT_AMOUNT, _DRIFT_AMOUNT)  # noqa: S311
+        drift = random.uniform(-_DRIFT_AMOUNT, _DRIFT_AMOUNT)
         self._temperature = self._clamp_temperature(self._temperature + drift)
 
     def _cancel_timer(self) -> None:

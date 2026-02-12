@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.routes import devices_router
 from backend.config import get_settings
 from backend.database.connection import init_database
 from backend.logging import get_logger
@@ -73,6 +74,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Register API routes
+app.include_router(devices_router)
 
 
 @app.get("/health", tags=["Health"])

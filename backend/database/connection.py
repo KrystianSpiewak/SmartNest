@@ -113,7 +113,7 @@ async def init_database() -> None:
     Raises:
         aiosqlite.Error: If database initialization fails
     """
-    global _initialized  # noqa: PLW0603 - Module-level state for initialization tracking
+    global _initialized
 
     async with _init_lock:
         if _initialized:

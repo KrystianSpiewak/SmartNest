@@ -29,7 +29,7 @@ def sample_user_create() -> UserCreate:
 @pytest.fixture
 def sample_user_row() -> tuple[object, ...]:
     """Sample database row for user (without password_hash)."""
-    now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+    now = datetime.now()
     return (
         1,  # id
         "testuser",  # username
@@ -45,7 +45,7 @@ def sample_user_row() -> tuple[object, ...]:
 @pytest.fixture
 def sample_user_row_with_hash() -> tuple[object, ...]:
     """Sample database row including password_hash (for authenticate)."""
-    now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+    now = datetime.now()
     return (
         1,  # id
         "testuser",  # username
@@ -83,13 +83,10 @@ class TestUserRepositoryCreate:
     ) -> None:
         """Test creating a user successfully."""
         with (
-            patch(
-                "backend.database.repositories.user.get_connection",
-                new_callable=AsyncMock,
-                return_value=mock_connection,
-            ),
+            patch("backend.database.repositories.user.get_connection") as mock_get_conn,
             patch("backend.database.repositories.user.hash_password", return_value="hashed_pw"),
         ):
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.create(sample_user_create)
 
             # Verify execute was called with correct SQL
@@ -121,13 +118,10 @@ class TestUserRepositoryCreate:
         )
 
         with (
-            patch(
-                "backend.database.repositories.user.get_connection",
-                new_callable=AsyncMock,
-                return_value=mock_connection,
-            ),
+            patch("backend.database.repositories.user.get_connection") as mock_get_conn,
             patch("backend.database.repositories.user.hash_password", return_value="hashed"),
         ):
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.create(admin_user)
 
             assert result.role == "admin"
@@ -144,10 +138,8 @@ class TestUserRepositoryGetById:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = sample_user_row
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_by_id(1)
 
             # Verify query was correct
@@ -167,10 +159,8 @@ class TestUserRepositoryGetById:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = None
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_by_id(999)
 
             assert result is None
@@ -187,10 +177,8 @@ class TestUserRepositoryGetByUsername:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = sample_user_row
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_by_username("testuser")
 
             call_args = mock_connection.execute.call_args
@@ -204,10 +192,8 @@ class TestUserRepositoryGetByUsername:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = None
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_by_username("nonexistent")
 
             assert result is None
@@ -224,10 +210,8 @@ class TestUserRepositoryGetByEmail:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = sample_user_row
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_by_email("test@example.com")
 
             call_args = mock_connection.execute.call_args
@@ -241,10 +225,8 @@ class TestUserRepositoryGetByEmail:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = None
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_by_email("nonexistent@example.com")
 
             assert result is None
@@ -261,10 +243,8 @@ class TestUserRepositoryGetAll:
         cursor = mock_connection.execute.return_value
         cursor.fetchall.return_value = [sample_user_row, sample_user_row]
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_all()
 
             # Verify query includes pagination
@@ -281,10 +261,8 @@ class TestUserRepositoryGetAll:
         cursor = mock_connection.execute.return_value
         cursor.fetchall.return_value = []
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             await UserRepository.get_all(skip=20, limit=10)
 
             call_args = mock_connection.execute.call_args
@@ -296,10 +274,8 @@ class TestUserRepositoryGetAll:
         cursor = mock_connection.execute.return_value
         cursor.fetchall.return_value = []
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.get_all()
 
             assert result == []
@@ -321,13 +297,10 @@ class TestUserRepositoryUpdate:
         cursor.fetchone.return_value = sample_user_row
 
         with (
-            patch(
-                "backend.database.repositories.user.get_connection",
-                new_callable=AsyncMock,
-                return_value=mock_connection,
-            ),
+            patch("backend.database.repositories.user.get_connection") as mock_get_conn,
             patch("backend.database.repositories.user.hash_password", return_value="new_hash"),
         ):
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.update(1, sample_user_create)
 
             # Verify UPDATE was called
@@ -347,13 +320,10 @@ class TestUserRepositoryUpdate:
         cursor.rowcount = 0
 
         with (
-            patch(
-                "backend.database.repositories.user.get_connection",
-                new_callable=AsyncMock,
-                return_value=mock_connection,
-            ),
+            patch("backend.database.repositories.user.get_connection") as mock_get_conn,
             patch("backend.database.repositories.user.hash_password", return_value="hash"),
         ):
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.update(999, sample_user_create)
 
             assert result is None
@@ -368,10 +338,8 @@ class TestUserRepositoryDelete:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 1
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.delete(1)
 
             call_args = mock_connection.execute.call_args
@@ -386,10 +354,8 @@ class TestUserRepositoryDelete:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 0
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.delete(999)
 
             assert result is False
@@ -404,10 +370,8 @@ class TestUserRepositoryCount:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = (15,)
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.count()
 
             call_args = mock_connection.execute.call_args
@@ -420,10 +384,8 @@ class TestUserRepositoryCount:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = (0,)
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.count()
 
             assert result == 0
@@ -441,13 +403,10 @@ class TestUserRepositoryAuthenticate:
         cursor.fetchone.return_value = sample_user_row_with_hash
 
         with (
-            patch(
-                "backend.database.repositories.user.get_connection",
-                new_callable=AsyncMock,
-                return_value=mock_connection,
-            ),
+            patch("backend.database.repositories.user.get_connection") as mock_get_conn,
             patch("backend.database.repositories.user.verify_password", return_value=True),
         ):
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.authenticate("testuser", "correct_password")
 
             # Verify password was checked
@@ -466,13 +425,10 @@ class TestUserRepositoryAuthenticate:
         cursor.fetchone.return_value = sample_user_row_with_hash
 
         with (
-            patch(
-                "backend.database.repositories.user.get_connection",
-                new_callable=AsyncMock,
-                return_value=mock_connection,
-            ),
+            patch("backend.database.repositories.user.get_connection") as mock_get_conn,
             patch("backend.database.repositories.user.verify_password", return_value=False),
         ):
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.authenticate("testuser", "wrong_password")
 
             assert result is None
@@ -483,10 +439,8 @@ class TestUserRepositoryAuthenticate:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = None
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.authenticate("nonexistent", "password")
 
             assert result is None
@@ -494,7 +448,7 @@ class TestUserRepositoryAuthenticate:
     @pytest.mark.asyncio
     async def test_authenticate_inactive_user(self, mock_connection: Mock) -> None:
         """Test authentication with inactive user."""
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+        now = datetime.now()
         inactive_row = (
             1,
             "testuser",
@@ -510,13 +464,10 @@ class TestUserRepositoryAuthenticate:
         cursor.fetchone.return_value = inactive_row
 
         with (
-            patch(
-                "backend.database.repositories.user.get_connection",
-                new_callable=AsyncMock,
-                return_value=mock_connection,
-            ),
+            patch("backend.database.repositories.user.get_connection") as mock_get_conn,
             patch("backend.database.repositories.user.verify_password", return_value=True),
         ):
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.authenticate("testuser", "password")
 
             assert result is None
@@ -531,10 +482,8 @@ class TestUserRepositoryDeactivate:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 1
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.deactivate(1)
 
             call_args = mock_connection.execute.call_args
@@ -550,10 +499,8 @@ class TestUserRepositoryDeactivate:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 0
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.deactivate(999)
 
             assert result is False
@@ -568,10 +515,8 @@ class TestUserRepositoryActivate:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 1
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.activate(1)
 
             call_args = mock_connection.execute.call_args
@@ -586,10 +531,8 @@ class TestUserRepositoryActivate:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 0
 
-        with patch(
-            "backend.database.repositories.user.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.user.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await UserRepository.activate(999)
 
             assert result is False
@@ -612,7 +555,7 @@ class TestUserRepositoryRowConversion:
 
     def test_row_to_response_null_last_login(self) -> None:
         """Test converting row with null last_login_at."""
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+        now = datetime.now()
         row = (
             1,
             "newuser",
@@ -630,7 +573,7 @@ class TestUserRepositoryRowConversion:
 
     def test_row_to_response_inactive_user(self) -> None:
         """Test converting row for inactive user."""
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+        now = datetime.now()
         row = (
             1,
             "inactive",

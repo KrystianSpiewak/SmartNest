@@ -34,48 +34,48 @@ class DeviceRepository:
         Raises:
             aiosqlite.IntegrityError: If device ID already exists
         """
-        conn = await get_connection()  # type: ignore[misc]
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
-        capabilities_json = json.dumps(device.capabilities)
+        async with get_connection() as conn:
+            now = datetime.now()
+            capabilities = json.dumps(device.capabilities)
 
-        await conn.execute(
-            """
-            INSERT INTO devices (
-                id, friendly_name, device_type, manufacturer, model,
-                firmware_version, mqtt_topic, capabilities_json, status,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                device.id,
-                device.friendly_name,
-                device.device_type,
-                device.manufacturer,
-                device.model,
-                device.firmware_version,
-                device.mqtt_topic,
-                capabilities_json,
-                "offline",  # Default status
-                now.isoformat(),
-                now.isoformat(),
-            ),
-        )
-        await conn.commit()
+            await conn.execute(
+                """
+                INSERT INTO devices (
+                    id, friendly_name, device_type, manufacturer, model,
+                    firmware_version, mqtt_topic, capabilities, status,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    device.id,
+                    device.friendly_name,
+                    device.device_type,
+                    device.manufacturer,
+                    device.model,
+                    device.firmware_version,
+                    device.mqtt_topic,
+                    capabilities,
+                    "offline",  # Default status
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            await conn.commit()
 
-        return DeviceResponse(
-            id=device.id,
-            friendly_name=device.friendly_name,
-            device_type=device.device_type,
-            manufacturer=device.manufacturer,
-            model=device.model,
-            firmware_version=device.firmware_version,
-            mqtt_topic=device.mqtt_topic,
-            capabilities=device.capabilities,
-            status="offline",
-            created_at=now,
-            updated_at=now,
-            last_seen_at=None,
-        )
+            return DeviceResponse(
+                id=device.id,
+                friendly_name=device.friendly_name,
+                device_type=device.device_type,
+                manufacturer=device.manufacturer,
+                model=device.model,
+                firmware_version=device.firmware_version,
+                mqtt_topic=device.mqtt_topic,
+                capabilities=device.capabilities,
+                status="offline",
+                created_at=now,
+                updated_at=now,
+                last_seen_at=None,
+            )
 
     @staticmethod
     async def get_by_id(device_id: str) -> DeviceResponse | None:
@@ -88,23 +88,23 @@ class DeviceRepository:
         Returns:
             Device if found, None otherwise
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute(
-            """
-            SELECT id, friendly_name, device_type, manufacturer, model,
-                   firmware_version, mqtt_topic, capabilities_json, status,
-                   created_at, updated_at, last_seen_at
-            FROM devices
-            WHERE id = ?
-            """,
-            (device_id,),
-        )
-        row = await cursor.fetchone()
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id, friendly_name, device_type, manufacturer, model,
+                       firmware_version, mqtt_topic, capabilities, status,
+                       created_at, updated_at, last_seen_at
+                FROM devices
+                WHERE id = ?
+                """,
+                (device_id,),
+            )
+            row = await cursor.fetchone()
 
-        if not row:
-            return None
+            if not row:
+                return None
 
-        return DeviceRepository._row_to_response(row)
+            return DeviceRepository._row_to_response(row)
 
     @staticmethod
     async def get_all(skip: int = 0, limit: int = 100) -> list[DeviceResponse]:
@@ -118,21 +118,21 @@ class DeviceRepository:
         Returns:
             List of devices
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute(
-            """
-            SELECT id, friendly_name, device_type, manufacturer, model,
-                   firmware_version, mqtt_topic, capabilities_json, status,
-                   created_at, updated_at, last_seen_at
-            FROM devices
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, skip),
-        )
-        rows = await cursor.fetchall()
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id, friendly_name, device_type, manufacturer, model,
+                       firmware_version, mqtt_topic, capabilities, status,
+                       created_at, updated_at, last_seen_at
+                FROM devices
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, skip),
+            )
+            rows = await cursor.fetchall()
 
-        return [DeviceRepository._row_to_response(row) for row in rows]
+            return [DeviceRepository._row_to_response(row) for row in rows]
 
     @staticmethod
     async def update(device_id: str, device: DeviceCreate) -> DeviceResponse | None:
@@ -146,36 +146,36 @@ class DeviceRepository:
         Returns:
             Updated device if found, None otherwise
         """
-        conn = await get_connection()  # type: ignore[misc]
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
-        capabilities_json = json.dumps(device.capabilities)
+        async with get_connection() as conn:
+            now = datetime.now()
+            capabilities = json.dumps(device.capabilities)
 
-        cursor = await conn.execute(
-            """
-            UPDATE devices
-            SET friendly_name = ?, device_type = ?, manufacturer = ?,
-                model = ?, firmware_version = ?, mqtt_topic = ?,
-                capabilities_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                device.friendly_name,
-                device.device_type,
-                device.manufacturer,
-                device.model,
-                device.firmware_version,
-                device.mqtt_topic,
-                capabilities_json,
-                now.isoformat(),
-                device_id,
-            ),
-        )
-        await conn.commit()
+            cursor = await conn.execute(
+                """
+                UPDATE devices
+                SET friendly_name = ?, device_type = ?, manufacturer = ?,
+                    model = ?, firmware_version = ?, mqtt_topic = ?,
+                    capabilities = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    device.friendly_name,
+                    device.device_type,
+                    device.manufacturer,
+                    device.model,
+                    device.firmware_version,
+                    device.mqtt_topic,
+                    capabilities,
+                    now.isoformat(),
+                    device_id,
+                ),
+            )
+            await conn.commit()
 
-        if cursor.rowcount == 0:
-            return None
+            if cursor.rowcount == 0:
+                return None
 
-        return await DeviceRepository.get_by_id(device_id)
+            return await DeviceRepository.get_by_id(device_id)
 
     @staticmethod
     async def delete(device_id: str) -> bool:
@@ -188,11 +188,11 @@ class DeviceRepository:
         Returns:
             True if deleted, False if not found
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))
-        await conn.commit()
+        async with get_connection() as conn:
+            cursor = await conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+            await conn.commit()
 
-        return cursor.rowcount > 0  # type: ignore[no-any-return]
+            return cursor.rowcount > 0
 
     @staticmethod
     async def count() -> int:
@@ -202,10 +202,10 @@ class DeviceRepository:
         Returns:
             Number of devices in database
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute("SELECT COUNT(*) FROM devices")
-        row = await cursor.fetchone()
-        return row[0] if row else 0
+        async with get_connection() as conn:
+            cursor = await conn.execute("SELECT COUNT(*) FROM devices")
+            row = await cursor.fetchone()
+            return row[0] if row else 0
 
     @staticmethod
     async def update_status(device_id: str, status: str, last_seen: datetime | None = None) -> bool:
@@ -220,32 +220,26 @@ class DeviceRepository:
         Returns:
             True if updated, False if not found
         """
-        conn = await get_connection()  # type: ignore[misc]
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
-        last_seen_val = (last_seen or now).isoformat()
+        async with get_connection() as conn:
+            now = datetime.now()
+            last_seen_val = (last_seen or now).isoformat()
 
-        cursor = await conn.execute(
-            """
-            UPDATE devices
-            SET status = ?, last_seen_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (status, last_seen_val, now.isoformat(), device_id),
-        )
-        await conn.commit()
+            cursor = await conn.execute(
+                """
+                UPDATE devices
+                SET status = ?, last_seen_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (status, last_seen_val, now.isoformat(), device_id),
+            )
+            await conn.commit()
 
-        return cursor.rowcount > 0  # type: ignore[no-any-return]
+        return cursor.rowcount > 0
 
     @staticmethod
     def _row_to_response(row: aiosqlite.Row) -> DeviceResponse:
         """
-        Convert database row to DeviceResponse model.
-
-        Args:
-            row: Database row from devices table
-
-        Returns:
-            DeviceResponse model instance
+        Convert database row to DeviceResponse model instance.
         """
         capabilities = json.loads(row[7]) if row[7] else []
         created_at = datetime.fromisoformat(row[9])

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS devices (
     mqtt_topic TEXT NOT NULL UNIQUE,
     manufacturer TEXT,
     model TEXT,
+    firmware_version TEXT,
     capabilities TEXT NOT NULL,  -- JSON array of capabilities
     status TEXT NOT NULL DEFAULT 'online',  -- online, offline, error
     created_at TEXT NOT NULL DEFAULT (datetime('now')),

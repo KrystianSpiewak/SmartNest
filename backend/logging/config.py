@@ -97,7 +97,7 @@ def configure_logging(
             ``"console"`` → coloured human-friendly output (dev).
             ``"json"`` → one JSON object per line (test / prod).
     """
-    global _configured  # noqa: PLW0603
+    global _configured
 
     numeric_level = getattr(logging, level.upper(), logging.INFO)
 
@@ -148,6 +148,6 @@ def get_logger(name: str | None = None) -> structlog.typing.FilteringBoundLogger
 
 def reset_logging() -> None:
     """Reset logging configuration.  **For testing only.**"""
-    global _configured  # noqa: PLW0603
+    global _configured
     _configured = False
     structlog.reset_defaults()

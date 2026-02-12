@@ -29,7 +29,10 @@ select = [
 ]
 ignore = [
     "E501",    # line too long (handled by formatter)
-    "S101",    # assert usage (OK in tests)
+    "S101",    # assert usage (OK in tests and type narrowing)
+    "S311",    # pseudo-random generators (OK for non-crypto use like sensor drift)
+    "DTZ005",  # naive datetime (used consistently, no timezone requirements)
+    "PLW0603", # global statement (intentional for module-level state)
     "PLR0913", # too many arguments (can be overly strict)
     "TRY003",  # long exception messages (often necessary)
     "SIM105",  # try-except-pass vs contextlib.suppress (explicit is better for testability)
@@ -72,6 +75,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "class.*Protocol",
     "@overload",
+    "pragma: no cover",
 ]
 
 [tool.mypy]

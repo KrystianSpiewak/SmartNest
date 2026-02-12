@@ -34,40 +34,41 @@ class UserRepository:
         Raises:
             aiosqlite.IntegrityError: If username or email already exists
         """
-        conn = await get_connection()  # type: ignore[misc]
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
-        password_hash = hash_password(user.password)
+        async with get_connection() as conn:
+            now = datetime.now()
+            password_hash = hash_password(user.password)
 
-        cursor = await conn.execute(
-            """
-        INSERT INTO users (
-            username, email, password_hash, role, is_active,
-            created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                user.username,
-                user.email,
-                password_hash,
-                user.role,
-                True,  # Default active
-                now.isoformat(),
-                now.isoformat(),
-            ),
-        )
-        await conn.commit()
-        user_id = cursor.lastrowid
+            cursor = await conn.execute(
+                """
+            INSERT INTO users (
+                username, email, password_hash, role, is_active,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    user.username,
+                    user.email,
+                    password_hash,
+                    user.role,
+                    True,  # Default active
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            await conn.commit()
+            user_id = cursor.lastrowid
+            assert user_id is not None, "Failed to get user ID after insert"
 
-        return UserResponse(
-            id=user_id,
-            username=user.username,
-            email=user.email,
-            role=user.role,
-            is_active=True,
-            created_at=now,
-            updated_at=now,
-            last_login_at=None,
-        )
+            return UserResponse(
+                id=user_id,
+                username=user.username,
+                email=user.email,
+                role=user.role,
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+                last_login_at=None,
+            )
 
     @staticmethod
     async def get_by_id(user_id: int) -> UserResponse | None:
@@ -80,22 +81,22 @@ class UserRepository:
         Returns:
             User if found, None otherwise
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute(
-            """
-        SELECT id, username, email, role, is_active,
-               created_at, updated_at, last_login_at
-        FROM users
-        WHERE id = ?
-        """,
-            (user_id,),
-        )
-        row = await cursor.fetchone()
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+            SELECT id, username, email, role, is_active,
+                   created_at, updated_at, last_login_at
+            FROM users
+            WHERE id = ?
+            """,
+                (user_id,),
+            )
+            row = await cursor.fetchone()
 
-        if not row:
-            return None
+            if not row:
+                return None
 
-        return UserRepository._row_to_response(row)
+            return UserRepository._row_to_response(row)
 
     @staticmethod
     async def get_by_username(username: str) -> UserResponse | None:
@@ -108,22 +109,22 @@ class UserRepository:
         Returns:
             User if found, None otherwise
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute(
-            """
-        SELECT id, username, email, role, is_active,
-               created_at, updated_at, last_login_at
-        FROM users
-        WHERE username = ?
-        """,
-            (username,),
-        )
-        row = await cursor.fetchone()
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+            SELECT id, username, email, role, is_active,
+                   created_at, updated_at, last_login_at
+            FROM users
+            WHERE username = ?
+            """,
+                (username,),
+            )
+            row = await cursor.fetchone()
 
-        if not row:
-            return None
+            if not row:
+                return None
 
-        return UserRepository._row_to_response(row)
+            return UserRepository._row_to_response(row)
 
     @staticmethod
     async def get_by_email(email: str) -> UserResponse | None:
@@ -136,22 +137,22 @@ class UserRepository:
         Returns:
             User if found, None otherwise
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute(
-            """
-        SELECT id, username, email, role, is_active,
-               created_at, updated_at, last_login_at
-        FROM users
-        WHERE email = ?
-        """,
-            (email,),
-        )
-        row = await cursor.fetchone()
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+            SELECT id, username, email, role, is_active,
+                   created_at, updated_at, last_login_at
+            FROM users
+            WHERE email = ?
+            """,
+                (email,),
+            )
+            row = await cursor.fetchone()
 
-        if not row:
-            return None
+            if not row:
+                return None
 
-        return UserRepository._row_to_response(row)
+            return UserRepository._row_to_response(row)
 
     @staticmethod
     async def get_all(skip: int = 0, limit: int = 100) -> list[UserResponse]:
@@ -165,20 +166,20 @@ class UserRepository:
         Returns:
             List of users
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute(
-            """
-        SELECT id, username, email, role, is_active,
-               created_at, updated_at, last_login_at
-        FROM users
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-        """,
-            (limit, skip),
-        )
-        rows = await cursor.fetchall()
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+            SELECT id, username, email, role, is_active,
+                   created_at, updated_at, last_login_at
+            FROM users
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+                (limit, skip),
+            )
+            rows = await cursor.fetchall()
 
-        return [UserRepository._row_to_response(row) for row in rows]
+            return [UserRepository._row_to_response(row) for row in rows]
 
     @staticmethod
     async def update(user_id: int, user: UserCreate) -> UserResponse | None:
@@ -192,25 +193,25 @@ class UserRepository:
         Returns:
             Updated user if found, None otherwise
         """
-        conn = await get_connection()  # type: ignore[misc]
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
-        password_hash = hash_password(user.password)
+        async with get_connection() as conn:
+            now = datetime.now()
+            password_hash = hash_password(user.password)
 
-        cursor = await conn.execute(
-            """
-        UPDATE users
-        SET username = ?, email = ?, password_hash = ?,
-            role = ?, updated_at = ?
-        WHERE id = ?
-        """,
-            (user.username, user.email, password_hash, user.role, now.isoformat(), user_id),
-        )
-        await conn.commit()
+            cursor = await conn.execute(
+                """
+            UPDATE users
+            SET username = ?, email = ?, password_hash = ?,
+                role = ?, updated_at = ?
+            WHERE id = ?
+            """,
+                (user.username, user.email, password_hash, user.role, now.isoformat(), user_id),
+            )
+            await conn.commit()
 
-        if cursor.rowcount == 0:
-            return None
+            if cursor.rowcount == 0:
+                return None
 
-        return await UserRepository.get_by_id(user_id)
+            return await UserRepository.get_by_id(user_id)
 
     @staticmethod
     async def delete(user_id: int) -> bool:
@@ -223,11 +224,11 @@ class UserRepository:
         Returns:
             True if deleted, False if not found
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        await conn.commit()
+        async with get_connection() as conn:
+            cursor = await conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            await conn.commit()
 
-        return cursor.rowcount > 0  # type: ignore[no-any-return]
+            return cursor.rowcount > 0
 
     @staticmethod
     async def count() -> int:
@@ -237,10 +238,10 @@ class UserRepository:
         Returns:
             Number of users in database
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute("SELECT COUNT(*) FROM users")
-        row = await cursor.fetchone()
-        return row[0] if row else 0
+        async with get_connection() as conn:
+            cursor = await conn.execute("SELECT COUNT(*) FROM users")
+            row = await cursor.fetchone()
+            return row[0] if row else 0
 
     @staticmethod
     async def authenticate(username: str, password: str) -> UserResponse | None:
@@ -254,49 +255,49 @@ class UserRepository:
         Returns:
             User if authentication successful, None otherwise
         """
-        conn = await get_connection()  # type: ignore[misc]
-        cursor = await conn.execute(
-            """
-        SELECT id, username, email, password_hash, role, is_active,
-               created_at, updated_at, last_login_at
-        FROM users
-        WHERE username = ?
-        """,
-            (username,),
-        )
-        row = await cursor.fetchone()
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+            SELECT id, username, email, password_hash, role, is_active,
+                   created_at, updated_at, last_login_at
+            FROM users
+            WHERE username = ?
+            """,
+                (username,),
+            )
+            row = await cursor.fetchone()
 
-        if not row:
-            return None
+            if not row:
+                return None
 
-        # Check if password matches
-        password_hash = row[3]
-        if not verify_password(password, password_hash):
-            return None
+            # Check if password matches
+            password_hash = row[3]
+            if not verify_password(password, password_hash):
+                return None
 
-        # Check if user is active
-        is_active = bool(row[5])
-        if not is_active:
-            return None
+            # Check if user is active
+            is_active = bool(row[5])
+            if not is_active:
+                return None
 
-        # Update last_login_at
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
-        await conn.execute(
-            "UPDATE users SET last_login_at = ? WHERE id = ?",
-            (now.isoformat(), row[0]),
-        )
-        await conn.commit()
+            # Update last_login_at
+            now = datetime.now()
+            await conn.execute(
+                "UPDATE users SET last_login_at = ? WHERE id = ?",
+                (now.isoformat(), row[0]),
+            )
+            await conn.commit()
 
-        return UserResponse(
-            id=row[0],
-            username=row[1],
-            email=row[2],
-            role=row[4],
-            is_active=is_active,
-            created_at=datetime.fromisoformat(row[6]),
-            updated_at=datetime.fromisoformat(row[7]),
-            last_login_at=now,
-        )
+            return UserResponse(
+                id=row[0],
+                username=row[1],
+                email=row[2],
+                role=row[4],
+                is_active=is_active,
+                created_at=datetime.fromisoformat(row[6]),
+                updated_at=datetime.fromisoformat(row[7]),
+                last_login_at=now,
+            )
 
     @staticmethod
     async def deactivate(user_id: int) -> bool:
@@ -309,20 +310,20 @@ class UserRepository:
         Returns:
             True if deactivated, False if not found
         """
-        conn = await get_connection()  # type: ignore[misc]
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+        async with get_connection() as conn:
+            now = datetime.now()
 
-        cursor = await conn.execute(
-            """
-        UPDATE users
-        SET is_active = ?, updated_at = ?
-        WHERE id = ?
-        """,
-            (False, now.isoformat(), user_id),
-        )
-        await conn.commit()
+            cursor = await conn.execute(
+                """
+            UPDATE users
+            SET is_active = ?, updated_at = ?
+            WHERE id = ?
+            """,
+                (False, now.isoformat(), user_id),
+            )
+            await conn.commit()
 
-        return cursor.rowcount > 0  # type: ignore[no-any-return]
+            return cursor.rowcount > 0
 
     @staticmethod
     async def activate(user_id: int) -> bool:
@@ -335,20 +336,20 @@ class UserRepository:
         Returns:
             True if activated, False if not found
         """
-        conn = await get_connection()  # type: ignore[misc]
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+        async with get_connection() as conn:
+            now = datetime.now()
 
-        cursor = await conn.execute(
-            """
-        UPDATE users
-        SET is_active = ?, updated_at = ?
-        WHERE id = ?
-        """,
-            (True, now.isoformat(), user_id),
-        )
-        await conn.commit()
+            cursor = await conn.execute(
+                """
+            UPDATE users
+            SET is_active = ?, updated_at = ?
+            WHERE id = ?
+            """,
+                (True, now.isoformat(), user_id),
+            )
+            await conn.commit()
 
-        return cursor.rowcount > 0  # type: ignore[no-any-return]
+            return cursor.rowcount > 0
 
     @staticmethod
     def _row_to_response(row: aiosqlite.Row) -> UserResponse:

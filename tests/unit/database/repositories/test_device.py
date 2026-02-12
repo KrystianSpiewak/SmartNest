@@ -33,7 +33,7 @@ def sample_device_create() -> DeviceCreate:
 @pytest.fixture
 def sample_device_row() -> tuple[object, ...]:
     """Sample database row for device."""
-    now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+    now = datetime.now()
     return (
         "light-001",  # id
         "Living Room Light",  # friendly_name
@@ -72,10 +72,8 @@ class TestDeviceRepositoryCreate:
         self, sample_device_create: DeviceCreate, mock_connection: Mock
     ) -> None:
         """Test creating a device successfully."""
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.create(sample_device_create)
 
             # Verify execute was called with correct SQL
@@ -108,10 +106,8 @@ class TestDeviceRepositoryCreate:
             firmware_version=None,
         )
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.create(minimal_device)
 
             assert result.id == "sensor-001"
@@ -130,10 +126,8 @@ class TestDeviceRepositoryGetById:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = sample_device_row
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.get_by_id("light-001")
 
             # Verify query was correct
@@ -154,10 +148,8 @@ class TestDeviceRepositoryGetById:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = None
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.get_by_id("nonexistent")
 
             assert result is None
@@ -174,10 +166,8 @@ class TestDeviceRepositoryGetAll:
         cursor = mock_connection.execute.return_value
         cursor.fetchall.return_value = [sample_device_row, sample_device_row]
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.get_all()
 
             # Verify query includes pagination
@@ -194,10 +184,8 @@ class TestDeviceRepositoryGetAll:
         cursor = mock_connection.execute.return_value
         cursor.fetchall.return_value = []
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             await DeviceRepository.get_all(skip=10, limit=50)
 
             call_args = mock_connection.execute.call_args
@@ -209,10 +197,8 @@ class TestDeviceRepositoryGetAll:
         cursor = mock_connection.execute.return_value
         cursor.fetchall.return_value = []
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.get_all()
 
             assert result == []
@@ -233,10 +219,8 @@ class TestDeviceRepositoryUpdate:
         cursor.rowcount = 1
         cursor.fetchone.return_value = sample_device_row
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.update("light-001", sample_device_create)
 
             # Verify UPDATE was called
@@ -255,10 +239,8 @@ class TestDeviceRepositoryUpdate:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 0
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.update("nonexistent", sample_device_create)
 
             assert result is None
@@ -273,10 +255,8 @@ class TestDeviceRepositoryDelete:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 1
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.delete("light-001")
 
             # Verify DELETE was called
@@ -292,10 +272,8 @@ class TestDeviceRepositoryDelete:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 0
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.delete("nonexistent")
 
             assert result is False
@@ -310,10 +288,8 @@ class TestDeviceRepositoryCount:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = (42,)
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.count()
 
             call_args = mock_connection.execute.call_args
@@ -326,10 +302,8 @@ class TestDeviceRepositoryCount:
         cursor = mock_connection.execute.return_value
         cursor.fetchone.return_value = (0,)
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.count()
 
             assert result == 0
@@ -344,10 +318,8 @@ class TestDeviceRepositoryUpdateStatus:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 1
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.update_status("light-001", "online")
 
             # Verify UPDATE was called
@@ -365,10 +337,8 @@ class TestDeviceRepositoryUpdateStatus:
         cursor.rowcount = 1
         custom_time = datetime(2026, 1, 15, 10, 30, 0)  # noqa: DTZ001
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.update_status(
                 "light-001", "offline", last_seen=custom_time
             )
@@ -383,10 +353,8 @@ class TestDeviceRepositoryUpdateStatus:
         cursor = mock_connection.execute.return_value
         cursor.rowcount = 0
 
-        with patch(
-            "backend.database.repositories.device.get_connection",
-            AsyncMock(return_value=mock_connection),
-        ):
+        with patch("backend.database.repositories.device.get_connection") as mock_get_conn:
+            mock_get_conn.return_value.__aenter__.return_value = mock_connection
             result = await DeviceRepository.update_status("nonexistent", "online")
 
             assert result is False
@@ -408,7 +376,7 @@ class TestDeviceRepositoryRowConversion:
 
     def test_row_to_response_null_last_seen(self) -> None:
         """Test converting row with null last_seen_at."""
-        now = datetime.now()  # noqa: DTZ005 - Naive datetime used consistently
+        now = datetime.now()
         row = (
             "sensor-001",
             "Sensor",
