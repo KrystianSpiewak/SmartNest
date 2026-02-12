@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
 from backend.config import AppSettings
@@ -46,11 +48,28 @@ def mock_settings_for_api(
 
 
 @pytest.fixture
-def test_app(mock_settings_for_api: tuple[AppSettings, Path]) -> TestClient:  # noqa: ARG001 - Fixture dependency
-    """Provide FastAPI TestClient with mocked settings."""
-    from backend.app import app  # noqa: PLC0415 - Import after monkeypatch
+def test_app(mock_settings_for_api: tuple[AppSettings, Path]) -> Generator[TestClient]:  # noqa: ARG001 - Fixture dependency
+    """Provide FastAPI TestClient with mocked settings and MQTT client."""
+    # Mock MQTT client to avoid connection attempt during app startup
+    # Import app AFTER setting up mocks to capture lifespan
+    from backend.app import app  # noqa: PLC0415
 
-    return TestClient(app)
+    with (
+        patch("backend.app.SmartNestMQTTClient") as mock_mqtt_class,
+        patch("backend.app.MQTTBridge") as mock_bridge_class,
+    ):
+        # Configure mock MQTT client
+        mock_mqtt_client = Mock()
+        mock_mqtt_class.return_value = mock_mqtt_client
+
+        # Configure mock MQTT bridge with async methods
+        mock_bridge = Mock()
+        mock_bridge.start = AsyncMock(return_value=None)
+        mock_bridge.sync_discovered_devices = AsyncMock(return_value=0)
+        mock_bridge.stop = AsyncMock(return_value=None)
+        mock_bridge_class.return_value = mock_bridge
+
+        yield TestClient(app)
 
 
 class TestFastAPIApplication:

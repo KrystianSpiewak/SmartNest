@@ -9,10 +9,10 @@ This directory contains the SmartNest Home Automation Management System project.
 
 ## Project Status
 
-**Current Phase:** Phase 3 - Backend API (Week 6)  
-**Next Milestone:** API Foundation Complete (Week 6)  
+**Current Phase:** Phase 4 - Terminal User Interface (Week 7+)  
+**Completed:** Backend API Complete (Week 6, Feb 11-12)  
 **Timeline:** 12 weeks (Weeks 4-15, Jan 26 - Apr 13, 2026)  
-**Effort:** 110 hours + 10 hour buffer  
+**Progress:** 69.5/110 hours (63%), 10 days ahead of schedule  
 
 ## Project Structure (Planned)
 
@@ -49,12 +49,12 @@ SmartNest/
 
 ## Quality Metrics
 
-- **Test Coverage:** 100% (715 statements, 98 branches)
-- **Test Suite:** 369 tests (365 unit + 4 integration)
-- **Mutation Score:** 97.4% (1182/1214 mutants killed)
-- **Linting:** ruff (100% passing)
+- **Test Coverage:** 100% (1178 statements, 146 branches)
+- **Test Suite:** 546 tests (534 unit + 12 integration)
+- **Mutation Score:** 97.5% (1245/1277 mutants killed)
+- **Linting:** ruff (100% passing, 72 files)
 - **Type Checking:** mypy strict mode (0 errors)
-- **Test Performance:** ~20 seconds full suite
+- **Test Performance:** ~44 seconds full suite
 
 ## Quick Start
 
@@ -88,12 +88,16 @@ npm run docker:down    # Stop broker
 - [x] Error handling and reconnection
 - [x] Expanded test suite (369 tests, 100% coverage, 97.4% mutation score)
 
-### Phase 3: Backend API
-- [ ] FastAPI project structure
-- [ ] Database schema implementation
-- [ ] CRUD endpoints
-- [ ] MQTT-to-API bridge
-- [ ] Authentication
+### Phase 3: Backend API (Week 6) ✅
+- [x] SQLite database schema (4 tables: devices, sensor_readings, device_state, users)
+- [x] Async connection manager (aiosqlite)
+- [x] FastAPI application with modern lifespan
+- [x] Pydantic models (DeviceCreate, DeviceUpdate, DeviceResponse, UserCreate, UserResponse)
+- [x] Repository pattern (DeviceRepository, UserRepository)
+- [x] Device CRUD API (7 REST endpoints)
+- [x] MQTT-to-Database bridge (MQTTBridge service)
+- [x] Authentication foundation (bcrypt password hashing)
+- [x] 546 tests, 100% coverage, 97.5% mutation score
 
 ### Phase 4: User Interface
 - [ ] TUI framework setup

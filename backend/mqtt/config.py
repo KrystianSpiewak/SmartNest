@@ -66,3 +66,12 @@ class MQTTConfig(BaseModel):
             )
 
         return self
+
+
+def get_mqtt_config() -> MQTTConfig:
+    """Get MQTT configuration from environment or defaults.
+
+    Returns:
+        MQTTConfig with broker connection parameters
+    """
+    return MQTTConfig()

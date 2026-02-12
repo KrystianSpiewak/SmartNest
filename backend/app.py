@@ -14,10 +14,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.mqtt_bridge import MQTTBridge
 from backend.api.routes import devices_router
 from backend.config import get_settings
 from backend.database.connection import init_database
 from backend.logging import get_logger
+from backend.mqtt.client import SmartNestMQTTClient
+from backend.mqtt.config import get_mqtt_config
 
 logger = get_logger(__name__)
 
@@ -28,10 +31,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     Startup:
         - Initialize database (create schema, admin user)
-        - TODO: Start MQTT client (Phase 6)
+        - Connect to MQTT broker
+        - Start MQTT bridge (device discovery → database)
 
     Shutdown:
-        - TODO: Stop MQTT client (Phase 6)
+        - Stop MQTT bridge
+        - Disconnect from MQTT broker
 
     Args:
         app: FastAPI application instance
@@ -47,12 +52,36 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_database()
     logger.info("database_initialized")
 
+    # Initialize MQTT client and bridge
+    mqtt_config = get_mqtt_config()
+    mqtt_client = SmartNestMQTTClient(mqtt_config)
+    mqtt_client.connect()
+    logger.info("mqtt_connected", broker=mqtt_config.broker)
+
+    # Start MQTT bridge for device discovery
+    mqtt_bridge = MQTTBridge(mqtt_client)
+    await mqtt_bridge.start()
+    logger.info("mqtt_bridge_started")
+
+    # Sync any devices discovered before API started
+    synced = await mqtt_bridge.sync_discovered_devices()
+    logger.info("devices_synced", count=synced)
+
     logger.info("fastapi_started")
 
     yield  # Application runs here
 
     # Shutdown
     logger.info("fastapi_stopping")
+
+    # Stop MQTT bridge
+    await mqtt_bridge.stop()
+    logger.info("mqtt_bridge_stopped")
+
+    # Disconnect MQTT client
+    mqtt_client.disconnect()
+    logger.info("mqtt_disconnected")
+
     logger.info("fastapi_stopped")
 
 
