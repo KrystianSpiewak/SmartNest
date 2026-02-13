@@ -53,19 +53,22 @@ Quick reference for SmartNest project documentation and configuration.
 
 ## Quality Metrics (Current)
 
-- **Test Coverage:** 100% statement and branch coverage
-- **Test Count:** 369 tests (365 unit + 4 integration)
-- **Mutation Testing:** 97.4% kill rate (1182/1214 killed, 31 acceptable survivors)
-- **Linting:** 100% passing (ruff)
+- **Test Coverage:** 100% statement and branch coverage (1178 statements, 146 branches)
+- **Test Count:** 547 tests (534 unit + 13 integration)
+- **Mutation Testing:** 97.5% kill rate (1245/1277 testable mutants)
+  - *Note: 103 mutants in backend/api show "no tests" (integration-only, see [mutation_testing.md](mutation_testing.md))*
+- **Linting:** 100% passing (ruff, 72 files)
 - **Type Safety:** mypy strict mode with 0 errors
-- **Test Runtime:** ~20 seconds for full suite
+- **Test Runtime:** ~40 seconds for full suite
 
 ### Tests
-- [tests/unit/devices/](../tests/unit/devices/) - Unit tests for device module (174 tests)
-- [tests/unit/mqtt/](../tests/unit/mqtt/) - Unit tests for MQTT module (94 tests)
-- [tests/unit/logging/](../tests/unit/logging/) - Unit tests for logging module (26 tests)
-- [tests/unit/test_config.py](../tests/unit/test_config.py) - Unit tests for AppSettings (19 tests)
-- [tests/integration/](../tests/integration/) - Integration tests against live broker (4 tests)
+- [tests/unit/devices/](../tests/unit/devices/) - Device module unit tests
+- [tests/unit/mqtt/](../tests/unit/mqtt/) - MQTT module unit tests  
+- [tests/unit/logging/](../tests/unit/logging/) - Logging module unit tests
+- [tests/unit/database/](../tests/unit/database/) - Database module unit tests (Week 6)
+- [tests/unit/api/](../tests/unit/api/) - API models/routes unit tests (Week 6)
+- [tests/integration/mqtt/](../tests/integration/mqtt/) - MQTT bridge integration tests (Week 6)
+- [tests/integration/api/routes/](../tests/integration/api/routes/) - API endpoint integration tests (Week 6)
 
 ### Git Configuration
 - [.gitattributes](../.gitattributes) - Line ending configuration (LF)
@@ -204,6 +207,10 @@ Available via `Ctrl+Shift+P` → "Tasks: Run Task" or via the `run_task` tool:
 
 **AI agents:** Always use `run_task` instead of `run_in_terminal` for these operations.
 
+## Developer Guides
+
+- [mutation_testing.md](mutation_testing.md) - Mutation testing with mutmut, understanding results, known limitations, and mutation score calculation
+
 ## Code Quality Standards
 
 ### Ruff Configuration
@@ -262,6 +269,7 @@ SmartNest/
 | Linting/formatting | [pyproject.toml](../pyproject.toml) |
 | Line endings | [.gitattributes](../.gitattributes) |
 | Editor config | [.editorconfig](../.editorconfig) |
+| Mutation testing | [mutation_testing.md](mutation_testing.md) |
 
 ## MQTT Broker Logging
 
@@ -283,5 +291,5 @@ SmartNest/
 
 ---
 
-**Last Updated:** February 9, 2026 (Post-Phase 2 completion)  
+**Last Updated:** February 12, 2026 (Post-Phase 3 completion - Backend API + Mutation Testing)  
 **Project:** SmartNest Home Automation Management System

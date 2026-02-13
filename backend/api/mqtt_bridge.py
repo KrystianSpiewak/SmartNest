@@ -61,6 +61,21 @@ class MQTTBridge:
             client_id=mqtt_client.config.client_id,
         )
 
+    @property
+    def mqtt_client(self) -> SmartNestMQTTClient:
+        """Return the MQTT client for testing purposes."""
+        return self._mqtt_client
+
+    @property
+    def discovery_consumer(self) -> DiscoveryConsumer:
+        """Return the discovery consumer for testing purposes."""
+        return self._discovery_consumer
+
+    @property
+    def is_started(self) -> bool:
+        """Return whether the bridge has been started."""
+        return self._started
+
     async def start(self) -> None:
         """Start the MQTT bridge service.
 
@@ -167,6 +182,21 @@ class MQTTBridge:
         )
 
         return synced_count
+
+    def handle_state_update_for_test(
+        self,
+        client: mqtt.Client,
+        userdata: object,
+        message: mqtt.MQTTMessage,
+    ) -> None:
+        """Handle device state update for testing purposes (not for production use).
+
+        Args:
+            client: MQTT client instance
+            userdata: User data
+            message: MQTT message containing state update
+        """
+        self._on_device_state_update(client, userdata, message)
 
     def _on_device_state_update(
         self,

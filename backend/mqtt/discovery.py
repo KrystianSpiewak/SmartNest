@@ -105,6 +105,16 @@ class DiscoveryConsumer:
         with self._lock:
             return len(self._registry)
 
+    @property
+    def is_started(self) -> bool:
+        """Return whether the consumer has been started."""
+        return self._started
+
+    @property
+    def mqtt_client(self) -> SmartNestMQTTClient:
+        """Return the MQTT client for testing purposes."""
+        return self._client
+
     # -- Lifecycle -------------------------------------------------------------
 
     def start(self) -> None:
@@ -184,6 +194,14 @@ class DiscoveryConsumer:
             )
             return
 
+        self._register_device(raw)
+
+    def register_device_for_test(self, raw: dict[str, Any]) -> None:
+        """Register a device for testing purposes (not for production use).
+
+        Args:
+            raw: Raw dictionary matching the discovery payload schema.
+        """
         self._register_device(raw)
 
     def _register_device(self, raw: dict[str, Any]) -> None:

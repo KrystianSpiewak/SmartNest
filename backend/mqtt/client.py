@@ -128,6 +128,11 @@ class SmartNestMQTTClient:
         """Return the current MQTT configuration (read-only)."""
         return self._config
 
+    @property
+    def paho_client(self) -> mqtt.Client:
+        """Return the internal Paho MQTT client for testing purposes."""
+        return self._paho
+
     # -- Paho callbacks --------------------------------------------------------
 
     def _on_connect(
