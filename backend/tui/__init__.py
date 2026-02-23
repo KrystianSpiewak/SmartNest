@@ -5,6 +5,6 @@ Provides Rich-based terminal interface for managing SmartNest home automation sy
 
 from __future__ import annotations
 
-__all__ = ["SmartNestTUI"]
-
-from backend.tui.app import SmartNestTUI
+# Note: SmartNestTUI not imported here to avoid RuntimeWarning when running as module
+# Import directly where needed: from backend.tui.app import SmartNestTUI
+__all__: list[str] = []

@@ -15,6 +15,7 @@ from rich.console import Console
 
 from backend.logging.catalog import MessageCode
 from backend.logging.utils import log_with_code
+from backend.tui.screens.dashboard import DashboardScreen
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -36,10 +37,12 @@ class SmartNestTUI:
     def __init__(self) -> None:
         """Initialize SmartNest TUI.
 
-        Creates Rich Console and sets up signal handlers for graceful shutdown.
+        Creates Rich Console, sets up signal handlers, and initializes screens.
         """
+        # Rich auto-detects terminal capabilities correctly (Git Bash, PowerShell, etc.)
         self.console = Console()
         self.is_running = False
+        self.dashboard = DashboardScreen(self.console)
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_sigint)
@@ -80,12 +83,16 @@ class SmartNestTUI:
     def startup(self) -> None:
         """Perform startup initialization.
 
-        Sets running flag and displays welcome message.
+        Sets running flag, displays welcome message, and renders dashboard.
         """
         self.is_running = True
         log_with_code(logger, "info", MessageCode.TUI_STARTED)
-        self.console.print("[bold green]SmartNest TUI[/bold green] - Home Automation Management")
-        self.console.print("Press [bold]Ctrl+C[/bold] to exit\n")
+
+        # Clear screen before rendering dashboard
+        self.console.clear()
+
+        # Render dashboard
+        self.dashboard.render()
 
     def shutdown(self) -> None:
         """Perform graceful shutdown.
@@ -110,8 +117,9 @@ class SmartNestTUI:
             self.startup()
             # TODO: Implement main event loop with screen navigation
             # For now, just wait for Ctrl+C
+            self.console.print()
             self.console.print(
-                "[dim]TUI framework ready. Screen implementation coming soon...[/dim]"
+                "[dim]Dashboard loaded. Press Ctrl+C to exit.[/dim]", justify="center"
             )
             # Keep alive until Ctrl+C (cross-platform compatible)
             try:

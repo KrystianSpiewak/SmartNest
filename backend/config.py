@@ -82,6 +82,9 @@ class AppSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
 
+    # -- Application -----------------------------------------------------------
+    app_version: str = "0.1.0"  # Keep in sync with package.json and backend.__version__
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:

@@ -9,6 +9,7 @@ from rich.console import Console
 
 from backend.logging.catalog import MessageCode
 from backend.tui.app import SmartNestTUI
+from backend.tui.screens.dashboard import DashboardScreen
 
 
 class TestSmartNestTUIInit:
@@ -18,6 +19,12 @@ class TestSmartNestTUIInit:
         """TUI creates Rich Console instance."""
         tui = SmartNestTUI()
         assert isinstance(tui.console, Console)
+
+    def test_creates_dashboard(self) -> None:
+        """TUI creates a DashboardScreen instance."""
+        tui = SmartNestTUI()
+        assert isinstance(tui.dashboard, DashboardScreen)
+        assert tui.dashboard.console is tui.console
 
     def test_initially_not_running(self) -> None:
         """TUI is not running before startup() called."""
@@ -56,16 +63,21 @@ class TestSmartNestTUIStartup:
             # Should log TUI_STARTED
             assert any(call.args[2] == MessageCode.TUI_STARTED for call in mock_log.call_args_list)
 
-    def test_startup_prints_welcome(self) -> None:
-        """startup() prints welcome message to console."""
+    def test_startup_clears_console(self) -> None:
+        """startup() clears the console before rendering."""
         tui = SmartNestTUI()
-        with patch.object(tui.console, "print") as mock_print:
+        with patch.object(tui.console, "clear") as mock_clear:
             tui.startup()
-            # Should print welcome message
-            assert mock_print.call_count >= 1
-            # First call should contain "SmartNest TUI"
-            first_call_arg = str(mock_print.call_args_list[0].args[0])
-            assert "SmartNest TUI" in first_call_arg
+            # Should clear console once
+            mock_clear.assert_called_once()
+
+    def test_startup_renders_dashboard(self) -> None:
+        """startup() renders the dashboard screen."""
+        tui = SmartNestTUI()
+        with patch.object(tui.dashboard, "render") as mock_render:
+            tui.startup()
+            # Should render dashboard once
+            mock_render.assert_called_once()
 
 
 class TestSmartNestTUIShutdown:

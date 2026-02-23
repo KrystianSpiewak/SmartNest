@@ -76,6 +76,7 @@ exclude_lines = [
     "class.*Protocol",
     "@overload",
     "pragma: no cover",
+    "if __name__ == .__main__.:",
 ]
 
 [tool.mypy]
