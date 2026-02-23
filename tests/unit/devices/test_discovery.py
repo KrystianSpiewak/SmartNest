@@ -20,28 +20,15 @@ from backend.mqtt.discovery import DeviceDiscoveryMessage, DiscoveryConsumer
 
 
 @pytest.fixture
-def config() -> MQTTConfig:
-    """Default test configuration."""
-    return MQTTConfig(
-        broker="localhost",
-        port=1883,
+def mqtt_client(mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> SmartNestMQTTClient:
+    """SmartNestMQTTClient with mocked Paho client."""
+    # Override client_id for discovery-specific identification
+    config = MQTTConfig(
+        broker=mqtt_config.broker,
+        port=mqtt_config.port,
         client_id="smartnest_discovery",
     )
-
-
-@pytest.fixture
-def mock_paho() -> MagicMock:
-    """Mocked paho.mqtt.client.Client instance."""
-    mock = MagicMock(spec=mqtt.Client)
-    mock.publish.return_value = MagicMock(rc=mqtt.MQTT_ERR_SUCCESS)
-    mock.subscribe.return_value = (mqtt.MQTT_ERR_SUCCESS, 1)
-    return mock
-
-
-@pytest.fixture
-def mqtt_client(config: MQTTConfig, mock_paho: MagicMock) -> SmartNestMQTTClient:
-    """SmartNestMQTTClient with mocked Paho client."""
-    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
         client = SmartNestMQTTClient(config)
     return client
 

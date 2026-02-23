@@ -14,7 +14,7 @@
     "setup:prod": "rm -rf .venv && python -m venv .venv && .venv\\Scripts\\python.exe -m pip install --upgrade pip && .venv\\Scripts\\python.exe -m pip install -r requirements/base.txt",
     "activate": "echo Run this command: source .venv/Scripts/activate",
     "dev": ".venv\\Scripts\\python -m backend.main",
-    "tui": ".venv\\Scripts\\python -m tui.main",
+    "tui": ".venv\\Scripts\\python -m backend.tui.app",
     "devices": ".venv\\Scripts\\python -m backend.devices.main",
     "test": ".venv\\Scripts\\python -m pytest tests/",
     "test:cov": ".venv\\Scripts\\python -m pytest --cov=backend --cov-report=term-missing --cov-report=html tests/",

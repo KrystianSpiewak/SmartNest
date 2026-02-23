@@ -84,6 +84,12 @@ class MessageCode(StrEnum):
     DB_QUERY_SUCCESS = "DB_003"
     DB_QUERY_FAILED = "DB_004"
 
+    # -- TUI operations (backend/tui/*.py) -------------------------------------
+    TUI_INITIALIZED = "TUI_001"
+    TUI_STARTED = "TUI_002"
+    TUI_SHUTDOWN_REQUESTED = "TUI_003"
+    TUI_SHUTDOWN = "TUI_004"
+
     # -- System / application lifecycle ----------------------------------------
     SYS_STARTUP = "SYS_001"
     SYS_SHUTDOWN = "SYS_002"
@@ -145,6 +151,11 @@ _CATALOG: dict[MessageCode, str] = {
     MessageCode.DB_CONNECTION_FAILED: "Database connection failed: {error}",
     MessageCode.DB_QUERY_SUCCESS: "Query executed: {operation}",
     MessageCode.DB_QUERY_FAILED: "Query failed ({operation}): {error}",
+    # TUI
+    MessageCode.TUI_INITIALIZED: "TUI framework initialized",
+    MessageCode.TUI_STARTED: "TUI application started",
+    MessageCode.TUI_SHUTDOWN_REQUESTED: "Shutdown requested via {signal}",
+    MessageCode.TUI_SHUTDOWN: "TUI application shutdown complete",
     # System
     MessageCode.SYS_STARTUP: "SmartNest {version} starting",
     MessageCode.SYS_SHUTDOWN: "SmartNest shutting down: {reason}",

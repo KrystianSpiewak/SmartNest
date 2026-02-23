@@ -27,12 +27,14 @@ class _ConcreteDevice(BaseDevice):
         *,
         device_id: str = "test_device",
         name: str = "Test Device",
-        config: MQTTConfig | None = None,
+        mqtt_config: MQTTConfig | None = None,
         on_start_hook: bool = False,
         on_stop_hook: bool = False,
     ) -> None:
-        if config is None:
-            config = MQTTConfig(broker="localhost", port=1883, client_id=f"smartnest_{device_id}")
+        if mqtt_config is None:
+            mqtt_config = MQTTConfig(
+                broker="localhost", port=1883, client_id=f"smartnest_{device_id}"
+            )
         self.start_hook_called = False
         self.stop_hook_called = False
         self._use_start_hook = on_start_hook
@@ -42,7 +44,7 @@ class _ConcreteDevice(BaseDevice):
             device_id=device_id,
             device_type="test_device",
             name=name,
-            config=config,
+            config=mqtt_config,
         )
 
     def _handle_command(
@@ -78,36 +80,29 @@ class _ConcreteDevice(BaseDevice):
 
 
 @pytest.fixture
-def config() -> MQTTConfig:
-    """Default test configuration."""
-    return MQTTConfig(
-        broker="localhost",
-        port=1883,
+def device(mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> _ConcreteDevice:
+    """Concrete device with mocked Paho client."""
+    # Override client_id for device-specific identification
+    device_config = MQTTConfig(
+        broker=mqtt_config.broker,
+        port=mqtt_config.port,
         client_id="smartnest_test_device",
     )
+    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+        return _ConcreteDevice(mqtt_config=device_config)
 
 
 @pytest.fixture
-def mock_paho() -> MagicMock:
-    """Mocked paho.mqtt.client.Client instance."""
-    mock = MagicMock(spec=mqtt.Client)
-    mock.publish.return_value = MagicMock(rc=mqtt.MQTT_ERR_SUCCESS)
-    mock.subscribe.return_value = (mqtt.MQTT_ERR_SUCCESS, 1)
-    return mock
-
-
-@pytest.fixture
-def device(config: MQTTConfig, mock_paho: MagicMock) -> _ConcreteDevice:
-    """Concrete device with mocked Paho client."""
-    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
-        return _ConcreteDevice(config=config)
-
-
-@pytest.fixture
-def device_with_hooks(config: MQTTConfig, mock_paho: MagicMock) -> _ConcreteDevice:
+def device_with_hooks(mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> _ConcreteDevice:
     """Concrete device with start/stop hooks enabled."""
-    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
-        return _ConcreteDevice(config=config, on_start_hook=True, on_stop_hook=True)
+    # Override client_id for device-specific identification
+    device_config = MQTTConfig(
+        broker=mqtt_config.broker,
+        port=mqtt_config.port,
+        client_id="smartnest_test_device",
+    )
+    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+        return _ConcreteDevice(mqtt_config=device_config, on_start_hook=True, on_stop_hook=True)
 
 
 # -- Tests: Init ---------------------------------------------------------------
@@ -136,29 +131,31 @@ class TestBaseDeviceInit:
         """MQTT client is accessible for testing."""
         assert device.client is not None
 
-    def test_validates_device_id_empty(self, mock_paho: MagicMock) -> None:
+    def test_validates_device_id_empty(self, mock_paho_client: MagicMock) -> None:
         """Empty device_id raises ValueError."""
         with (
-            patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho),
+            patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client),
             pytest.raises(ValueError, match="must not be empty"),
         ):
             _ConcreteDevice(device_id="")
 
-    def test_validates_device_id_wildcards(self, mock_paho: MagicMock) -> None:
+    def test_validates_device_id_wildcards(self, mock_paho_client: MagicMock) -> None:
         """Device ID with MQTT wildcards raises ValueError."""
         with (
-            patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho),
+            patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client),
             pytest.raises(ValueError, match="invalid MQTT characters"),
         ):
             _ConcreteDevice(device_id="light+01")
 
-    def test_logs_device_registered(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_logs_device_registered(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Constructor must log DEVICE_REGISTERED with exact logger and parameters."""
         with (
-            patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho),
+            patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client),
             patch("backend.devices.base.log_with_code") as mock_log,
         ):
-            _ConcreteDevice(device_id="test_id", name="Test", config=config)
+            _ConcreteDevice(device_id="test_id", name="Test", mqtt_config=mqtt_config)
             # Verify call with exact parameters
             mock_log.assert_called_once()
             call_args = mock_log.call_args
@@ -171,12 +168,12 @@ class TestBaseDeviceInit:
             assert call_args.kwargs["device_type"] == "test_device"  # Exact value
 
     def test_init_creates_child_logger_with_device_context(
-        self, config: MQTTConfig, mock_paho: MagicMock
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
     ) -> None:
         """__init__ must bind device_id and device_type to child logger."""
         # Create device
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
-            device = _ConcreteDevice(device_id="test_id", name="Test", config=config)
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+            device = _ConcreteDevice(device_id="test_id", name="Test", mqtt_config=mqtt_config)
 
         # Verify logger has bound context by checking it's a bound logger
         assert isinstance(device._logger, structlog.BoundLoggerBase)
@@ -207,39 +204,45 @@ class TestBaseDeviceInit:
 class TestBaseDeviceStart:
     """Tests for BaseDevice.start() lifecycle."""
 
-    def test_start_connects_to_broker(self, device: _ConcreteDevice, mock_paho: MagicMock) -> None:
+    def test_start_connects_to_broker(
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
+    ) -> None:
         """start() connects the MQTT client to the broker."""
         device.client.set_connected_for_test(True)
         result = device.start()
         assert result is True
-        mock_paho.connect.assert_called_once()
+        mock_paho_client.connect.assert_called_once()
 
     def test_start_subscribes_to_command_topic(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """start() subscribes to the device command topic."""
         device.client.set_connected_for_test(True)
         device.start()
-        mock_paho.subscribe.assert_called_once_with("smartnest/device/test_device/command", qos=1)
+        mock_paho_client.subscribe.assert_called_once_with(
+            "smartnest/device/test_device/command", qos=1
+        )
 
     def test_start_registers_command_handler(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """start() registers the command handler via message_callback_add."""
         device.client.set_connected_for_test(True)
         device.start()
-        mock_paho.message_callback_add.assert_called_once_with(
+        mock_paho_client.message_callback_add.assert_called_once_with(
             "smartnest/device/test_device/command",
             device._handle_command,
         )
 
-    def test_start_publishes_discovery(self, device: _ConcreteDevice, mock_paho: MagicMock) -> None:
+    def test_start_publishes_discovery(
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
+    ) -> None:
         """start() publishes a retained discovery message."""
         device.client.set_connected_for_test(True)
         device.start()
 
         # Find the discovery publish call
-        publish_calls = mock_paho.publish.call_args_list
+        publish_calls = mock_paho_client.publish.call_args_list
         discovery_call = None
         for call in publish_calls:
             topic = call.args[0] if call.args else call.kwargs.get("topic")
@@ -259,10 +262,10 @@ class TestBaseDeviceStart:
         assert device.is_running is True
 
     def test_start_returns_false_on_connection_failure(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """start() returns False when broker connection fails."""
-        mock_paho.connect.side_effect = OSError("Connection refused")
+        mock_paho_client.connect.side_effect = OSError("Connection refused")
         result = device.start()
         assert result is False
         assert device.is_running is False
@@ -283,10 +286,10 @@ class TestBaseDeviceStart:
         assert device_with_hooks.start_hook_called is True
 
     def test_start_logs_connection_failure(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """start() logs DEVICE_REGISTRATION_FAILED with exact error message."""
-        mock_paho.connect.side_effect = OSError("Connection refused")
+        mock_paho_client.connect.side_effect = OSError("Connection refused")
         with patch("backend.devices.base.log_with_code") as mock_log:
             device.start()
             # Find the registration failed log call
@@ -309,7 +312,7 @@ class TestBaseDeviceStart:
             assert call.kwargs["error"] == "Failed to connect to MQTT broker"
 
     def test_start_logs_device_connected(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """start() logs DEVICE_CONNECTED with exact device_id parameter."""
         device.client.set_connected_for_test(True)
@@ -336,7 +339,7 @@ class TestBaseDeviceStart:
         assert sig.parameters["timeout"].default == 10.0
 
     def test_start_calls_start_operation_with_exact_params(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """start() must call start_operation with exact operation name and device_id."""
         device.client.set_connected_for_test(True)
@@ -375,12 +378,14 @@ class TestBaseDeviceStart:
 class TestBaseDeviceStop:
     """Tests for BaseDevice.stop() lifecycle."""
 
-    def test_stop_disconnects_client(self, device: _ConcreteDevice, mock_paho: MagicMock) -> None:
+    def test_stop_disconnects_client(
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
+    ) -> None:
         """stop() disconnects the MQTT client."""
         device.client.set_connected_for_test(True)
         device.start()
         device.stop()
-        mock_paho.disconnect.assert_called_once()
+        mock_paho_client.disconnect.assert_called_once()
 
     def test_stop_sets_running_false(self, device: _ConcreteDevice) -> None:
         """stop() sets is_running to False."""
@@ -390,22 +395,22 @@ class TestBaseDeviceStop:
         assert device.is_running is False
 
     def test_stop_removes_command_handler(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """stop() removes the command handler before disconnecting."""
         device.client.set_connected_for_test(True)
         device.start()
         device.stop()
-        mock_paho.message_callback_remove.assert_called_once_with(
+        mock_paho_client.message_callback_remove.assert_called_once_with(
             "smartnest/device/test_device/command"
         )
 
     def test_stop_noop_when_not_running(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """stop() does nothing if device is not running."""
         device.stop()
-        mock_paho.disconnect.assert_not_called()
+        mock_paho_client.disconnect.assert_not_called()
 
     def test_stop_calls_on_stop_hook(self, device_with_hooks: _ConcreteDevice) -> None:
         """stop() calls _on_stop() hook before teardown."""
@@ -415,7 +420,7 @@ class TestBaseDeviceStop:
         assert device_with_hooks.stop_hook_called is True
 
     def test_stop_logs_device_disconnected(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """stop() logs DEVICE_DISCONNECTED with exact reason parameter."""
         device.client.set_connected_for_test(True)
@@ -437,7 +442,7 @@ class TestBaseDeviceStop:
             assert call.kwargs["reason"] == "test_shutdown"  # Exact value
 
     def test_stop_default_reason_is_shutdown(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """stop() must use 'shutdown' as default reason, not None."""
         device.client.set_connected_for_test(True)
@@ -462,13 +467,13 @@ class TestBaseDeviceDiscovery:
     """Tests for BaseDevice discovery announcement."""
 
     def test_publishes_discovery_on_start(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """start() publishes discovery payload to correct topic."""
         device.client.set_connected_for_test(True)
         device.start()
 
-        publish_calls = mock_paho.publish.call_args_list
+        publish_calls = mock_paho_client.publish.call_args_list
         discovery_calls = [
             c
             for c in publish_calls
@@ -477,13 +482,13 @@ class TestBaseDeviceDiscovery:
         assert len(discovery_calls) == 1
 
     def test_discovery_payload_contains_required_fields(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """Discovery payload includes device_id, name, device_type, capabilities, topics."""
         device.client.set_connected_for_test(True)
         device.start()
 
-        publish_calls = mock_paho.publish.call_args_list
+        publish_calls = mock_paho_client.publish.call_args_list
         for call in publish_calls:
             topic = call.args[0] if call.args else call.kwargs.get("topic")
             if topic == "smartnest/discovery/announce":
@@ -497,7 +502,9 @@ class TestBaseDeviceDiscovery:
 
         pytest.fail("Discovery publish not found")
 
-    def test_discovery_logs_on_success(self, device: _ConcreteDevice, mock_paho: MagicMock) -> None:
+    def test_discovery_logs_on_success(
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
+    ) -> None:
         """Successful discovery publish logs DEVICE_DISCOVERY_ANNOUNCED."""
         device.client.set_connected_for_test(True)
         with patch("backend.devices.base.log_with_code") as mock_log:
@@ -517,7 +524,7 @@ class TestBaseDeviceStatePublishing:
     """Tests for BaseDevice._publish_state()."""
 
     def test_publishes_state_via_client(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """_publish_state() delegates to client.publish_device_state()."""
         device.client.set_connected_for_test(True)
@@ -532,7 +539,7 @@ class TestBaseDeviceStatePublishing:
         assert result is False
 
     def test_publish_state_logs_on_success(
-        self, device: _ConcreteDevice, mock_paho: MagicMock
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
         """Successful state publish logs DEVICE_STATE_PUBLISHED with exact topic."""
         device.client.set_connected_for_test(True)
@@ -616,7 +623,9 @@ class TestBaseDeviceDefaultHooks:
         """BaseDevice._on_stop() executes as no-op (covers default return)."""
         BaseDevice._on_stop(device)  # should not raise
 
-    def test_discovery_failure_branch(self, device: _ConcreteDevice, mock_paho: MagicMock) -> None:
+    def test_discovery_failure_branch(
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
+    ) -> None:
         """Discovery failure (publish returns False) does not log announced."""
         device.client.set_connected_for_test(False)
         with patch("backend.devices.base.log_with_code") as mock_log:

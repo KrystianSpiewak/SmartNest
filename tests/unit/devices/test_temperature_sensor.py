@@ -17,32 +17,19 @@ from backend.mqtt.config import MQTTConfig
 
 
 @pytest.fixture
-def config() -> MQTTConfig:
-    """Default test configuration for temperature sensor."""
-    return MQTTConfig(
-        broker="localhost",
-        port=1883,
+def sensor(mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> MockTemperatureSensor:
+    """MockTemperatureSensor with mocked Paho client."""
+    # Override client_id for device-specific identification
+    sensor_config = MQTTConfig(
+        broker=mqtt_config.broker,
+        port=mqtt_config.port,
         client_id="smartnest_temp_01",
     )
-
-
-@pytest.fixture
-def mock_paho() -> MagicMock:
-    """Mocked paho.mqtt.client.Client instance."""
-    mock = MagicMock(spec=mqtt.Client)
-    mock.publish.return_value = MagicMock(rc=mqtt.MQTT_ERR_SUCCESS)
-    mock.subscribe.return_value = (mqtt.MQTT_ERR_SUCCESS, 1)
-    return mock
-
-
-@pytest.fixture
-def sensor(config: MQTTConfig, mock_paho: MagicMock) -> MockTemperatureSensor:
-    """MockTemperatureSensor with mocked Paho client."""
-    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
         return MockTemperatureSensor(
             device_id="temp_01",
             name="Kitchen Temperature",
-            config=config,
+            config=sensor_config,
             interval=30.0,
         )
 
@@ -77,57 +64,67 @@ class TestTempSensorInit:
         """Device type is 'temperature_sensor'."""
         assert sensor.device_type == "temperature_sensor"
 
-    def test_custom_initial_temp(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_custom_initial_temp(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Custom initial temperature is clamped to valid range."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_02",
                 name="Custom",
-                config=config,
+                config=mqtt_config,
                 initial_temp=72.5,
             )
         assert sensor.temperature == 72.5
 
-    def test_initial_temp_clamped_low(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_initial_temp_clamped_low(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Initial temperature below 65 is clamped to 65."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_03",
                 name="Cold",
-                config=config,
+                config=mqtt_config,
                 initial_temp=50.0,
             )
         assert sensor.temperature == 65.0
 
-    def test_initial_temp_clamped_high(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_initial_temp_clamped_high(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Initial temperature above 75 is clamped to 75."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_04",
                 name="Hot",
-                config=config,
+                config=mqtt_config,
                 initial_temp=90.0,
             )
         assert sensor.temperature == 75.0
 
-    def test_interval_minimum_enforced(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_interval_minimum_enforced(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Interval below 5 seconds is clamped to 5."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_05",
                 name="Fast",
-                config=config,
+                config=mqtt_config,
                 interval=1.0,
             )
         assert sensor.interval == 5.0
 
-    def test_init_timer_starts_as_none(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_init_timer_starts_as_none(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Timer must be initialized to None, not empty string."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_01",
                 name="Test",
-                config=config,
+                config=mqtt_config,
             )
         # Verify timer is None before any reading scheduled
         assert sensor._timer is None  # Kills "" mutation
@@ -160,14 +157,14 @@ class TestTempSensorRoundingPrecision:
     """Tests for temperature rounding precision."""
 
     def test_get_state_rounds_to_one_decimal(
-        self, config: MQTTConfig, mock_paho: MagicMock
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
     ) -> None:
         """get_state must round to exactly 1 decimal place."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_01",
                 name="Test",
-                config=config,
+                config=mqtt_config,
                 initial_temp=70.12345,  # Many decimals
             )
         state = sensor.get_state()
@@ -178,14 +175,14 @@ class TestTempSensorRoundingPrecision:
         assert sensor.get_state()["value"] == 70.2  # Rounds up
 
     def test_get_reading_rounds_to_one_decimal(
-        self, config: MQTTConfig, mock_paho: MagicMock
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
     ) -> None:
         """get_reading must round to exactly 1 decimal place."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_01",
                 name="Test",
-                config=config,
+                config=mqtt_config,
                 initial_temp=72.14,
             )
         reading = sensor.get_reading()
@@ -219,26 +216,30 @@ class TestTempSensorDrift:
             sensor._simulate_drift()
         assert 65.0 <= sensor.temperature <= 75.0
 
-    def test_drift_at_lower_bound(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_drift_at_lower_bound(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Drift from lower bound stays within range."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_06",
                 name="Low",
-                config=config,
+                config=mqtt_config,
                 initial_temp=65.0,
             )
         for _ in range(100):
             sensor._simulate_drift()
         assert sensor.temperature >= 65.0
 
-    def test_drift_at_upper_bound(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_drift_at_upper_bound(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Drift from upper bound stays within range."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockTemperatureSensor(
                 device_id="temp_07",
                 name="High",
-                config=config,
+                config=mqtt_config,
                 initial_temp=75.0,
             )
         for _ in range(100):
@@ -283,18 +284,18 @@ class TestTempSensorPublishing:
     """Tests for periodic sensor data publishing."""
 
     def test_publish_reading_publishes_data(
-        self, sensor: MockTemperatureSensor, mock_paho: MagicMock
+        self, sensor: MockTemperatureSensor, mock_paho_client: MagicMock
     ) -> None:
         """_publish_reading() publishes sensor data to correct topic."""
         sensor.client.set_connected_for_test(True)
         sensor._running = True
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
 
         # Patch timer scheduling to avoid side effects
         with patch.object(sensor, "_schedule_reading"):
             sensor._publish_reading()
 
-        publish_calls = mock_paho.publish.call_args_list
+        publish_calls = mock_paho_client.publish.call_args_list
         sensor_calls = [
             c
             for c in publish_calls
@@ -303,7 +304,7 @@ class TestTempSensorPublishing:
         assert len(sensor_calls) == 1
 
     def test_publish_reading_logs_success(
-        self, sensor: MockTemperatureSensor, mock_paho: MagicMock
+        self, sensor: MockTemperatureSensor, mock_paho_client: MagicMock
     ) -> None:
         """Successful publish logs DEVICE_SENSOR_PUBLISHED."""
         sensor.client.set_connected_for_test(True)
@@ -321,16 +322,16 @@ class TestTempSensorPublishing:
             assert len(published_calls) == 1
 
     def test_publish_reading_noop_when_not_running(
-        self, sensor: MockTemperatureSensor, mock_paho: MagicMock
+        self, sensor: MockTemperatureSensor, mock_paho_client: MagicMock
     ) -> None:
         """_publish_reading() does nothing when sensor is not running."""
         sensor._running = False
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         sensor._publish_reading()
-        mock_paho.publish.assert_not_called()
+        mock_paho_client.publish.assert_not_called()
 
     def test_publish_reading_reschedules(
-        self, sensor: MockTemperatureSensor, mock_paho: MagicMock
+        self, sensor: MockTemperatureSensor, mock_paho_client: MagicMock
     ) -> None:
         """_publish_reading() reschedules itself after publishing."""
         sensor.client.set_connected_for_test(True)
@@ -340,7 +341,7 @@ class TestTempSensorPublishing:
             mock_schedule.assert_called_once()
 
     def test_publish_reading_no_log_when_publish_fails(
-        self, sensor: MockTemperatureSensor, mock_paho: MagicMock
+        self, sensor: MockTemperatureSensor, mock_paho_client: MagicMock
     ) -> None:
         """Failed publish does not log DEVICE_SENSOR_PUBLISHED."""
         sensor._running = True
@@ -358,7 +359,7 @@ class TestTempSensorPublishing:
             assert len(published_calls) == 0
 
     def test_publish_reading_no_reschedule_when_stopped(
-        self, sensor: MockTemperatureSensor, mock_paho: MagicMock
+        self, sensor: MockTemperatureSensor, mock_paho_client: MagicMock
     ) -> None:
         """_publish_reading() does not reschedule when _running goes False mid-publish."""
         sensor.client.set_connected_for_test(True)

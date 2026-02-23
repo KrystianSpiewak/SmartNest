@@ -17,32 +17,19 @@ from backend.mqtt.config import MQTTConfig
 
 
 @pytest.fixture
-def config() -> MQTTConfig:
-    """Default test configuration for light device."""
-    return MQTTConfig(
-        broker="localhost",
-        port=1883,
+def light(mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> MockSmartLight:
+    """MockSmartLight with mocked Paho client."""
+    # Override client_id for device-specific identification
+    light_config = MQTTConfig(
+        broker=mqtt_config.broker,
+        port=mqtt_config.port,
         client_id="smartnest_light_01",
     )
-
-
-@pytest.fixture
-def mock_paho() -> MagicMock:
-    """Mocked paho.mqtt.client.Client instance."""
-    mock = MagicMock(spec=mqtt.Client)
-    mock.publish.return_value = MagicMock(rc=mqtt.MQTT_ERR_SUCCESS)
-    mock.subscribe.return_value = (mqtt.MQTT_ERR_SUCCESS, 1)
-    return mock
-
-
-@pytest.fixture
-def light(config: MQTTConfig, mock_paho: MagicMock) -> MockSmartLight:
-    """MockSmartLight with mocked Paho client."""
-    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
         return MockSmartLight(
             device_id="light_01",
             name="Living Room Light",
-            config=config,
+            config=light_config,
         )
 
 
@@ -66,13 +53,15 @@ class TestMockSmartLightInit:
         assert light.brightness == 100
         assert light.color_temp == 4000
 
-    def test_custom_initial_state(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_custom_initial_state(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Custom initial state values are accepted."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             light = MockSmartLight(
                 device_id="light_02",
                 name="Custom Light",
-                config=config,
+                config=mqtt_config,
                 power=True,
                 brightness=50,
                 color_temp=3000,
@@ -85,41 +74,55 @@ class TestMockSmartLightInit:
         """Device type is set to 'smart_light'."""
         assert light.device_type == "smart_light"
 
-    def test_brightness_clamped_below_zero(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_brightness_clamped_below_zero(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Brightness below 0 is clamped to 0."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
-            light = MockSmartLight(device_id="light_03", name="Low", config=config, brightness=-10)
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+            light = MockSmartLight(
+                device_id="light_03", name="Low", config=mqtt_config, brightness=-10
+            )
         assert light.brightness == 0
 
-    def test_brightness_clamped_above_100(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_brightness_clamped_above_100(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Brightness above 100 is clamped to 100."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
-            light = MockSmartLight(device_id="light_04", name="High", config=config, brightness=200)
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+            light = MockSmartLight(
+                device_id="light_04", name="High", config=mqtt_config, brightness=200
+            )
         assert light.brightness == 100
 
-    def test_color_temp_clamped_below_min(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_color_temp_clamped_below_min(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Color temp below 2700 is clamped to 2700."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             light = MockSmartLight(
-                device_id="light_05", name="Warm", config=config, color_temp=1000
+                device_id="light_05", name="Warm", config=mqtt_config, color_temp=1000
             )
         assert light.color_temp == 2700
 
-    def test_color_temp_clamped_above_max(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_color_temp_clamped_above_max(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Color temp above 6500 is clamped to 6500."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             light = MockSmartLight(
-                device_id="light_06", name="Cool", config=config, color_temp=9000
+                device_id="light_06", name="Cool", config=mqtt_config, color_temp=9000
             )
         assert light.color_temp == 6500
 
-    def test_brightness_defaults_to_100(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_brightness_defaults_to_100(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Creating light without brightness parameter defaults to 100."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             light = MockSmartLight(
                 device_id="test_light",
                 name="Test",
-                config=config,
+                config=mqtt_config,
                 # Explicitly NOT providing brightness parameter
             )
         # Verify runtime default value - kills brightness=101 mutation
@@ -151,11 +154,13 @@ class TestMockSmartLightCommandHandling:
         assert light.power is True
 
     def test_power_off(
-        self, light: MockSmartLight, config: MQTTConfig, mock_paho: MagicMock
+        self, light: MockSmartLight, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
     ) -> None:
         """Power command turns the light off."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
-            light_on = MockSmartLight(device_id="light_07", name="On", config=config, power=True)
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+            light_on = MockSmartLight(
+                device_id="light_07", name="On", config=mqtt_config, power=True
+            )
         msg = _make_message({"power": False})
         light_on._handle_command(MagicMock(), None, msg)
         assert light_on.power is False
@@ -213,14 +218,14 @@ class TestMockSmartLightCommandHandling:
         light._handle_command(MagicMock(), None, msg)
         assert light.color_temp == 4000  # unchanged
 
-    def test_no_change_no_publish(self, light: MockSmartLight, mock_paho: MagicMock) -> None:
+    def test_no_change_no_publish(self, light: MockSmartLight, mock_paho_client: MagicMock) -> None:
         """Command that doesn't change state doesn't trigger publish."""
         light.client.set_connected_for_test(True)
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         # Send current values — no change
         msg = _make_message({"brightness": 100})
         light._handle_command(MagicMock(), None, msg)
-        mock_paho.publish.assert_not_called()
+        mock_paho_client.publish.assert_not_called()
 
     def test_same_power_no_log(self, light: MockSmartLight) -> None:
         """Setting power to current value does not log DEVICE_COMMAND_SENT."""
@@ -248,13 +253,15 @@ class TestMockSmartLightCommandHandling:
             ]
             assert len(sent_calls) == 0
 
-    def test_state_change_publishes(self, light: MockSmartLight, mock_paho: MagicMock) -> None:
+    def test_state_change_publishes(
+        self, light: MockSmartLight, mock_paho_client: MagicMock
+    ) -> None:
         """State change triggers a publish."""
         light.client.set_connected_for_test(True)
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         msg = _make_message({"power": True})
         light._handle_command(MagicMock(), None, msg)
-        assert mock_paho.publish.called
+        assert mock_paho_client.publish.called
 
     def test_empty_command_no_change(self, light: MockSmartLight) -> None:
         """Empty command payload causes no state change."""
@@ -591,13 +598,13 @@ class TestMockSmartLightOnStart:
     """Tests for MockSmartLight._on_start() initial state publish."""
 
     def test_on_start_publishes_initial_state(
-        self, light: MockSmartLight, mock_paho: MagicMock
+        self, light: MockSmartLight, mock_paho_client: MagicMock
     ) -> None:
         """_on_start() publishes the initial device state."""
         light.client.set_connected_for_test(True)
         light.start()
 
-        publish_calls = mock_paho.publish.call_args_list
+        publish_calls = mock_paho_client.publish.call_args_list
         state_calls = [
             c
             for c in publish_calls

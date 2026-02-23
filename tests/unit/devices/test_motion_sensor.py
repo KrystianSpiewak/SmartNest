@@ -17,32 +17,19 @@ from backend.mqtt.config import MQTTConfig
 
 
 @pytest.fixture
-def config() -> MQTTConfig:
-    """Default test configuration for motion sensor."""
-    return MQTTConfig(
-        broker="localhost",
-        port=1883,
+def sensor(mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> MockMotionSensor:
+    """MockMotionSensor with mocked Paho client."""
+    # Override client_id for device-specific identification
+    sensor_config = MQTTConfig(
+        broker=mqtt_config.broker,
+        port=mqtt_config.port,
         client_id="smartnest_motion_01",
     )
-
-
-@pytest.fixture
-def mock_paho() -> MagicMock:
-    """Mocked paho.mqtt.client.Client instance."""
-    mock = MagicMock(spec=mqtt.Client)
-    mock.publish.return_value = MagicMock(rc=mqtt.MQTT_ERR_SUCCESS)
-    mock.subscribe.return_value = (mqtt.MQTT_ERR_SUCCESS, 1)
-    return mock
-
-
-@pytest.fixture
-def sensor(config: MQTTConfig, mock_paho: MagicMock) -> MockMotionSensor:
-    """MockMotionSensor with mocked Paho client."""
-    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+    with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
         return MockMotionSensor(
             device_id="motion_01",
             name="Hallway Motion",
-            config=config,
+            config=sensor_config,
             cooldown=5.0,
         )
 
@@ -73,24 +60,26 @@ class TestMotionSensorInit:
         """Device type is 'motion_sensor'."""
         assert sensor.device_type == "motion_sensor"
 
-    def test_cooldown_minimum_enforced(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_cooldown_minimum_enforced(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """Cooldown below 1 second is clamped to 1."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockMotionSensor(
                 device_id="motion_02",
                 name="Fast",
-                config=config,
+                config=mqtt_config,
                 cooldown=0.1,
             )
         assert sensor.cooldown == 1.0
 
-    def test_custom_cooldown(self, config: MQTTConfig, mock_paho: MagicMock) -> None:
+    def test_custom_cooldown(self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> None:
         """Custom cooldown above minimum is accepted."""
-        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho):
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
             sensor = MockMotionSensor(
                 device_id="motion_03",
                 name="Slow",
-                config=config,
+                config=mqtt_config,
                 cooldown=10.0,
             )
         assert sensor.cooldown == 10.0
@@ -134,7 +123,7 @@ class TestMotionSensorTriggerClear:
     """Tests for trigger_motion() and clear_motion() public API."""
 
     def test_trigger_motion_sets_detected(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """trigger_motion() sets motion_detected to True."""
         sensor._client.set_connected_for_test(True)
@@ -142,21 +131,21 @@ class TestMotionSensorTriggerClear:
         assert sensor.motion_detected is True
 
     def test_trigger_motion_publishes_sensor_data(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """trigger_motion() publishes sensor data to correct topic."""
         sensor._client.set_connected_for_test(True)
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         sensor.trigger_motion()
         sensor_calls = [
             c
-            for c in mock_paho.publish.call_args_list
+            for c in mock_paho_client.publish.call_args_list
             if "smartnest/sensor/motion_01/data" in str(c)
         ]
         assert len(sensor_calls) >= 1
 
     def test_publish_sensor_state_no_log_when_publish_fails(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """_publish_sensor_state skips logging when publish returns False."""
         # Not connected → publish_sensor_data returns False
@@ -171,7 +160,7 @@ class TestMotionSensorTriggerClear:
             assert len(sent_calls) == 0
 
     def test_trigger_motion_starts_cooldown_timer(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """trigger_motion() starts the cooldown timer."""
         sensor._client.set_connected_for_test(True)
@@ -183,7 +172,7 @@ class TestMotionSensorTriggerClear:
             mock_timer.start.assert_called_once()
 
     def test_trigger_motion_timer_is_daemon(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """Cooldown timer must be daemon thread to not block shutdown."""
         sensor._client.set_connected_for_test(True)
@@ -199,7 +188,7 @@ class TestMotionSensorTriggerClear:
             assert mock_timer.daemon is True
 
     def test_retrigger_cancels_old_cooldown(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """Re-triggering cancels existing cooldown timer before creating new."""
         sensor._client.set_connected_for_test(True)
@@ -212,20 +201,20 @@ class TestMotionSensorTriggerClear:
             old_timer.cancel.assert_called_once()
 
     def test_retrigger_does_not_republish_state(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """Re-triggering (already detected) does not republish sensor data."""
         sensor._client.set_connected_for_test(True)
         sensor._motion_detected = True
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         with patch("backend.devices.mock_motion_sensor.threading.Timer") as mock_cls:
             mock_cls.return_value = MagicMock()
             sensor.trigger_motion()
         # No publish because motion was already detected
-        mock_paho.publish.assert_not_called()
+        mock_paho_client.publish.assert_not_called()
 
     def test_clear_motion_resets_detected(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """clear_motion() sets motion_detected to False."""
         sensor._client.set_connected_for_test(True)
@@ -234,16 +223,16 @@ class TestMotionSensorTriggerClear:
         assert sensor.motion_detected is False
 
     def test_clear_motion_publishes_sensor_data(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """clear_motion() publishes sensor data."""
         sensor._client.set_connected_for_test(True)
         sensor._motion_detected = True
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         sensor.clear_motion()
         sensor_calls = [
             c
-            for c in mock_paho.publish.call_args_list
+            for c in mock_paho_client.publish.call_args_list
             if "smartnest/sensor/motion_01/data" in str(c)
         ]
         assert len(sensor_calls) >= 1
@@ -259,13 +248,13 @@ class TestMotionSensorTriggerClear:
         assert sensor._cooldown_timer is None
 
     def test_clear_when_already_clear_is_noop(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """clear_motion() when already clear does not publish."""
         sensor._client.set_connected_for_test(True)
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         sensor.clear_motion()
-        mock_paho.publish.assert_not_called()
+        mock_paho_client.publish.assert_not_called()
 
 
 # -- Tests: Auto-clear ---------------------------------------------------------
@@ -275,7 +264,7 @@ class TestMotionSensorAutoClear:
     """Tests for auto-clear cooldown timer."""
 
     def test_auto_clear_resets_when_running(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """_auto_clear() clears motion when running."""
         sensor._client.set_connected_for_test(True)
@@ -292,14 +281,14 @@ class TestMotionSensorAutoClear:
         assert sensor.motion_detected is True
 
     def test_auto_clear_noop_when_already_clear(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """_auto_clear() does nothing when already clear."""
         sensor._running = True
         sensor._motion_detected = False
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         sensor._auto_clear()
-        mock_paho.publish.assert_not_called()
+        mock_paho_client.publish.assert_not_called()
 
 
 # -- Tests: Cancel cooldown ----------------------------------------------------
@@ -328,7 +317,7 @@ class TestMotionSensorCancelCooldown:
 class TestMotionSensorCommandHandling:
     """Tests for MockMotionSensor command processing."""
 
-    def test_trigger_command(self, sensor: MockMotionSensor, mock_paho: MagicMock) -> None:
+    def test_trigger_command(self, sensor: MockMotionSensor, mock_paho_client: MagicMock) -> None:
         """'trigger' command activates motion detection."""
         sensor._client.set_connected_for_test(True)
         msg = _make_message({"trigger": True})
@@ -337,7 +326,7 @@ class TestMotionSensorCommandHandling:
             sensor._handle_command(MagicMock(), None, msg)
         assert sensor.motion_detected is True
 
-    def test_clear_command(self, sensor: MockMotionSensor, mock_paho: MagicMock) -> None:
+    def test_clear_command(self, sensor: MockMotionSensor, mock_paho_client: MagicMock) -> None:
         """'clear' command resets motion detection."""
         sensor._client.set_connected_for_test(True)
         sensor._motion_detected = True
@@ -372,7 +361,7 @@ class TestMotionSensorCommandLogging:
     """Tests for command log events with exact logger and parameter verification."""
 
     def test_handle_command_starts_operation_with_exact_params(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """_handle_command must call start_operation with exact operation and device_id."""
         sensor._client.set_connected_for_test(True)
@@ -396,7 +385,7 @@ class TestMotionSensorCommandLogging:
             assert call.kwargs["device_id"] is not None
 
     def test_trigger_command_logs_with_exact_params(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """Trigger command must log with non-None logger and command='trigger'."""
         sensor._client.set_connected_for_test(True)
@@ -428,7 +417,7 @@ class TestMotionSensorCommandLogging:
             assert call.kwargs["device_id"] is not None
 
     def test_clear_command_logs_with_exact_params(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """Clear command must log with non-None logger and command='clear'."""
         sensor._client.set_connected_for_test(True)
@@ -496,7 +485,7 @@ class TestMotionSensorStatePublishLogging:
     """Tests for state publishing methods with logger verification."""
 
     def test_trigger_motion_logs_with_exact_params(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """trigger_motion must log SENSOR_DATA_PUBLISHED with non-None logger."""
         sensor._client.set_connected_for_test(True)
@@ -522,7 +511,7 @@ class TestMotionSensorStatePublishLogging:
             assert call.kwargs["topic"] == "smartnest/sensor/motion_01/data"
 
     def test_clear_motion_logs_with_exact_params(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """clear_motion must log SENSOR_DATA_PUBLISHED with non-None logger."""
         sensor._client.set_connected_for_test(True)
@@ -544,7 +533,7 @@ class TestMotionSensorStatePublishLogging:
             assert call.kwargs["topic"] == "smartnest/sensor/motion_01/data"
 
     def test_publish_sensor_state_logs_with_exact_params(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """_publish_sensor_state must log with non-None logger when successful."""
         sensor._client.set_connected_for_test(True)
@@ -595,15 +584,15 @@ class TestMotionSensorLifecycle:
     """Tests for _on_start() and _on_stop() hooks."""
 
     def test_on_start_publishes_initial_state(
-        self, sensor: MockMotionSensor, mock_paho: MagicMock
+        self, sensor: MockMotionSensor, mock_paho_client: MagicMock
     ) -> None:
         """_on_start() publishes initial sensor state."""
         sensor._client.set_connected_for_test(True)
-        mock_paho.publish.reset_mock()
+        mock_paho_client.publish.reset_mock()
         sensor._on_start()
         sensor_calls = [
             c
-            for c in mock_paho.publish.call_args_list
+            for c in mock_paho_client.publish.call_args_list
             if "smartnest/sensor/motion_01/data" in str(c)
         ]
         assert len(sensor_calls) >= 1
