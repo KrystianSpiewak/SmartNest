@@ -5,6 +5,7 @@ from __future__ import annotations
 import signal
 from unittest.mock import MagicMock, patch
 
+import httpx
 from rich.console import Console
 
 from backend.logging.catalog import MessageCode
@@ -30,6 +31,17 @@ class TestSmartNestTUIInit:
         """TUI is not running before startup() called."""
         tui = SmartNestTUI()
         assert tui.is_running is False
+
+    def test_creates_http_client(self) -> None:
+        """TUI creates HTTP client with default base URL."""
+        tui = SmartNestTUI()
+        assert isinstance(tui.http_client, httpx.Client)
+        assert tui.api_base_url == "http://localhost:8000"
+
+    def test_accepts_custom_api_url(self) -> None:
+        """TUI accepts custom API base URL."""
+        tui = SmartNestTUI(api_base_url="http://example.com:9000")
+        assert tui.api_base_url == "http://example.com:9000"
 
     def test_logs_initialization(self) -> None:
         """TUI logs initialization with correct message code."""
@@ -79,6 +91,25 @@ class TestSmartNestTUIStartup:
             # Should render dashboard once
             mock_render.assert_called_once()
 
+    def test_startup_fetches_device_count(self) -> None:
+        """startup() fetches device count from API."""
+        tui = SmartNestTUI()
+        with patch.object(tui, "_fetch_device_count", return_value=5) as mock_fetch:
+            tui.startup()
+            # Should call _fetch_device_count once
+            mock_fetch.assert_called_once()
+
+    def test_startup_passes_device_count_to_dashboard(self) -> None:
+        """startup() passes device count to dashboard.render()."""
+        tui = SmartNestTUI()
+        with (
+            patch.object(tui, "_fetch_device_count", return_value=7),
+            patch.object(tui.dashboard, "render") as mock_render,
+        ):
+            tui.startup()
+            # Should pass device_count=7 to render()
+            mock_render.assert_called_once_with(device_count=7)
+
 
 class TestSmartNestTUIShutdown:
     """Tests for TUI shutdown."""
@@ -91,8 +122,89 @@ class TestSmartNestTUIShutdown:
             tui.shutdown()
         assert tui.is_running is False
 
+    def test_shutdown_closes_http_client(self) -> None:
+        """shutdown() closes the HTTP client."""
+        tui = SmartNestTUI()
+        tui.is_running = True
+        with patch.object(tui.http_client, "close") as mock_close:
+            with patch("sys.exit"):
+                tui.shutdown()
+            # Should close HTTP client
+            mock_close.assert_called_once()
+
     def test_shutdown_idempotent(self) -> None:
         """shutdown() can be called multiple times safely."""
+        tui = SmartNestTUI()
+        tui.is_running = True
+        with patch("sys.exit"):
+            tui.shutdown()
+            # Second call should be no-op (is_running already False)
+            tui.shutdown()
+
+
+class TestSmartNestTUIFetchDeviceCount:
+    """Tests for _fetch_device_count() method."""
+
+    def test_fetch_device_count_success(self) -> None:
+        """_fetch_device_count() returns count on successful API call."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"count": 42}
+
+        with patch.object(tui.http_client, "get", return_value=mock_response) as mock_get:
+            count = tui._fetch_device_count()
+
+        assert count == 42
+        mock_get.assert_called_once_with("/api/devices/count")
+        mock_response.raise_for_status.assert_called_once()
+
+    def test_fetch_device_count_http_error(self) -> None:
+        """_fetch_device_count() returns None on HTTP error."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "404", request=MagicMock(), response=MagicMock()
+        )
+
+        with (
+            patch.object(tui.http_client, "get", return_value=mock_response),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            count = tui._fetch_device_count()
+
+        assert count is None
+        # Should log error
+        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+
+    def test_fetch_device_count_connection_error(self) -> None:
+        """_fetch_device_count() returns None on connection error."""
+        tui = SmartNestTUI()
+
+        with (
+            patch.object(
+                tui.http_client, "get", side_effect=httpx.ConnectError("Connection refused")
+            ),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            count = tui._fetch_device_count()
+
+        assert count is None
+        # Should log error
+        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+
+    def test_fetch_device_count_timeout(self) -> None:
+        """_fetch_device_count() returns None on timeout."""
+        tui = SmartNestTUI()
+
+        with (
+            patch.object(tui.http_client, "get", side_effect=httpx.TimeoutException("Timeout")),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            count = tui._fetch_device_count()
+
+        assert count is None
+        # Should log error
+        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
         tui = SmartNestTUI()
         tui.is_running = True
         with patch("sys.exit"):

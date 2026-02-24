@@ -89,6 +89,7 @@ class MessageCode(StrEnum):
     TUI_STARTED = "TUI_002"
     TUI_SHUTDOWN_REQUESTED = "TUI_003"
     TUI_SHUTDOWN = "TUI_004"
+    TUI_API_ERROR = "TUI_005"
 
     # -- System / application lifecycle ----------------------------------------
     SYS_STARTUP = "SYS_001"
@@ -156,6 +157,7 @@ _CATALOG: dict[MessageCode, str] = {
     MessageCode.TUI_STARTED: "TUI application started",
     MessageCode.TUI_SHUTDOWN_REQUESTED: "Shutdown requested via {signal}",
     MessageCode.TUI_SHUTDOWN: "TUI application shutdown complete",
+    MessageCode.TUI_API_ERROR: "API request failed: {error}",
     # System
     MessageCode.SYS_STARTUP: "SmartNest {version} starting",
     MessageCode.SYS_SHUTDOWN: "SmartNest shutting down: {reason}",

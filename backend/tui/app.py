@@ -10,6 +10,7 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
+import httpx
 import structlog
 from rich.console import Console
 
@@ -32,16 +33,23 @@ class SmartNestTUI:
     Attributes:
         console: Rich Console instance for rendering.
         is_running: Flag indicating if TUI is active.
+        api_base_url: Base URL for backend API.
+        http_client: HTTP client for API requests.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, api_base_url: str = "http://localhost:8000") -> None:
         """Initialize SmartNest TUI.
 
         Creates Rich Console, sets up signal handlers, and initializes screens.
+
+        Args:
+            api_base_url: Base URL for backend API (default: http://localhost:8000)
         """
         # Rich auto-detects terminal capabilities correctly (Git Bash, PowerShell, etc.)
         self.console = Console()
         self.is_running = False
+        self.api_base_url = api_base_url
+        self.http_client = httpx.Client(base_url=api_base_url, timeout=5.0)
         self.dashboard = DashboardScreen(self.console)
 
         # Register signal handlers for graceful shutdown
@@ -49,6 +57,27 @@ class SmartNestTUI:
         signal.signal(signal.SIGTERM, self._handle_sigterm)
 
         log_with_code(logger, "debug", MessageCode.TUI_INITIALIZED)
+
+    def _fetch_device_count(self) -> int | None:
+        """Fetch device count from backend API.
+
+        Returns:
+            Device count, or None if API unavailable/error
+        """
+        try:
+            response = self.http_client.get("/api/devices/count")
+            response.raise_for_status()
+            data = response.json()
+            count = data.get("count")
+            return int(count) if count is not None else None
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException) as e:
+            log_with_code(
+                logger,
+                "warning",
+                MessageCode.TUI_API_ERROR,
+                error=str(e),
+            )
+            return None
 
     def _handle_sigint(self, _signum: int, _frame: FrameType | None) -> None:
         """Handle SIGINT (Ctrl+C) for graceful shutdown.
@@ -91,8 +120,11 @@ class SmartNestTUI:
         # Clear screen before rendering dashboard
         self.console.clear()
 
-        # Render dashboard
-        self.dashboard.render()
+        # Fetch device count from API
+        device_count = self._fetch_device_count()
+
+        # Render dashboard with device count
+        self.dashboard.render(device_count=device_count)
 
     def shutdown(self) -> None:
         """Perform graceful shutdown.
@@ -105,6 +137,8 @@ class SmartNestTUI:
         self.is_running = False
         log_with_code(logger, "info", MessageCode.TUI_SHUTDOWN)
         self.console.print("\n[bold yellow]Shutting down SmartNest TUI...[/bold yellow]")
+        # Close HTTP client
+        self.http_client.close()
         sys.exit(0)
 
     def run(self) -> None:

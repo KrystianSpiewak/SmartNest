@@ -28,12 +28,36 @@ class TestDashboardScreenRender:
         console = MagicMock(spec=Console)
         dashboard = DashboardScreen(console)
 
-        dashboard.render()
+        dashboard.render(device_count=5)
 
         # Should call print() multiple times (header, blank, status, blank, summary, etc.)
         # Exact count: 1 header + 1 blank + 1 status + 1 blank + 1 summary + 1 blank
         #              + 1 activity + 1 blank + 1 alerts + 1 blank + 1 menu = 11 calls
         assert console.print.call_count == 11
+
+    def test_render_with_device_count(self) -> None:
+        """render() displays device count when provided."""
+        string_io = StringIO()
+        console = Console(file=string_io, force_terminal=True, width=100)
+        dashboard = DashboardScreen(console)
+
+        dashboard.render(device_count=10)
+
+        output = string_io.getvalue()
+        assert "10" in output  # Device count should appear
+        assert "Total Devices:" in output
+
+    def test_render_without_device_count(self) -> None:
+        """render() displays API Error when device count is None."""
+        string_io = StringIO()
+        console = Console(file=string_io, force_terminal=True, width=100)
+        dashboard = DashboardScreen(console)
+
+        dashboard.render(device_count=None)
+
+        output = string_io.getvalue()
+        assert "API Error" in output  # Error message should appear
+        assert "Total Devices:" in output
 
     def test_render_produces_output(self) -> None:
         """render() produces visible output to console."""
@@ -42,7 +66,7 @@ class TestDashboardScreenRender:
         console = Console(file=string_io, force_terminal=True, width=100)
         dashboard = DashboardScreen(console)
 
-        dashboard.render()
+        dashboard.render(device_count=3)
 
         output = string_io.getvalue()
         # Check for key content

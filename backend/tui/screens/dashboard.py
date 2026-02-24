@@ -30,13 +30,16 @@ class DashboardScreen:
         """
         self.console = console
 
-    def render(self) -> None:
+    def render(self, device_count: int | None = None) -> None:
         """Render the dashboard screen with static content.
 
         Currently displays placeholder data. Future phases will integrate:
         - API calls for real device counts
         - MQTT live updates for system status
         - Real-time activity feed
+
+        Args:
+            device_count: Total number of devices (None if API unavailable)
         """
 
         # Header
@@ -50,7 +53,7 @@ class DashboardScreen:
         self.console.print()
 
         # Device Summary
-        device_summary = self._render_device_summary()
+        device_summary = self._render_device_summary(device_count=device_count)
         self.console.print(device_summary)
         self.console.print()
 
@@ -137,11 +140,14 @@ class DashboardScreen:
             border_style="blue",
         )
 
-    def _render_device_summary(self) -> Panel:
+    def _render_device_summary(self, device_count: int | None = None) -> Panel:
         """Render device summary panel.
 
         Shows total devices, online count, and offline count.
-        Currently uses placeholder data.
+        Currently uses placeholder data for online/offline counts.
+
+        Args:
+            device_count: Total number of devices (None if API unavailable)
 
         Returns:
             Rich Panel with device statistics table
@@ -151,10 +157,15 @@ class DashboardScreen:
         table.add_column(justify="left")
         table.add_column(justify="left")
 
-        # Total Devices
+        # Total Devices - show count from API or error message
+        if device_count is not None:
+            count_text = Text(str(device_count), style="bold white")
+        else:
+            count_text = Text("API Error", style="bold red")
+
         table.add_row(
             "Total Devices:",
-            Text("Loading...", style="bold white"),
+            count_text,
             "",
         )
 
