@@ -90,6 +90,10 @@ class MessageCode(StrEnum):
     TUI_SHUTDOWN_REQUESTED = "TUI_003"
     TUI_SHUTDOWN = "TUI_004"
     TUI_API_ERROR = "TUI_005"
+    TUI_MQTT_CONNECTED = "TUI_006"
+    TUI_MQTT_DISCONNECTED = "TUI_007"
+    TUI_MQTT_MESSAGE_RECEIVED = "TUI_008"
+    TUI_MQTT_MESSAGE_PARSE_ERROR = "TUI_009"
 
     # -- System / application lifecycle ----------------------------------------
     SYS_STARTUP = "SYS_001"
@@ -158,6 +162,10 @@ _CATALOG: dict[MessageCode, str] = {
     MessageCode.TUI_SHUTDOWN_REQUESTED: "Shutdown requested via {signal}",
     MessageCode.TUI_SHUTDOWN: "TUI application shutdown complete",
     MessageCode.TUI_API_ERROR: "API request failed: {error}",
+    MessageCode.TUI_MQTT_CONNECTED: "TUI MQTT client connected to broker",
+    MessageCode.TUI_MQTT_DISCONNECTED: "TUI MQTT client disconnected (rc={rc})",
+    MessageCode.TUI_MQTT_MESSAGE_RECEIVED: "Received MQTT message on topic {topic}",
+    MessageCode.TUI_MQTT_MESSAGE_PARSE_ERROR: "Failed to parse MQTT message: {error}",
     # System
     MessageCode.SYS_STARTUP: "SmartNest {version} starting",
     MessageCode.SYS_SHUTDOWN: "SmartNest shutting down: {reason}",

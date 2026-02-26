@@ -9,10 +9,10 @@ This directory contains the SmartNest Home Automation Management System project.
 
 ## Project Status
 
-**Current Phase:** Phase 4 - Terminal User Interface (Week 7+)  
-**Completed:** Backend API Complete (Week 6, Feb 11-12)  
+**Current Phase:** Phase 5 - Security & Final Integration (Week 8+)  
+**Completed:** TUI Complete (Week 7, Feb 26)  
 **Timeline:** 12 weeks (Weeks 4-15, Jan 26 - Apr 13, 2026)  
-**Progress:** 69.5/110 hours (63%), 10 days ahead of schedule  
+**Progress:** ~80/110 hours (73%), 2 weeks ahead of schedule  
 
 ## Project Structure (Planned)
 
@@ -49,12 +49,12 @@ SmartNest/
 
 ## Quality Metrics
 
-- **Test Coverage:** 100% (1178 statements, 146 branches)
-- **Test Suite:** 546 tests (534 unit + 12 integration)
-- **Mutation Score:** 97.5% (1245/1277 mutants killed)
-- **Linting:** ruff (100% passing, 72 files)
-- **Type Checking:** mypy strict mode (0 errors)
-- **Test Performance:** ~44 seconds full suite
+- **Test Coverage:** 100% (1908 statements, 220 branches)
+- **Test Suite:** 743 tests (721 unit + 22 integration)
+- **Mutation Score:** 97.5%+ (target ≥97%)
+- **Linting:** ruff (100% passing, 97 files)
+- **Type Checking:** mypy strict mode (0 errors, 92 source files)
+- **Test Performance:** ~173 seconds full suite
 
 ## Quick Start
 
@@ -99,11 +99,14 @@ npm run docker:down    # Stop broker
 - [x] Authentication foundation (bcrypt password hashing)
 - [x] 546 tests, 100% coverage, 97.5% mutation score
 
-### Phase 4: User Interface
-- [ ] TUI framework setup
-- [ ] Dashboard screen
-- [ ] Device list and detail screens
-- [ ] Real-time updates
+### Phase 4: User Interface (Week 7) ✅
+- [x] TUI framework setup (Rich library integration)
+- [x] Dashboard screen with MQTT live updates (4 FPS)
+- [x] Device list screen with filtering and search
+- [x] Device detail screen with smart light controls
+- [x] Sensor view screen with 24-hour statistics
+- [x] Settings screen with user management
+- [x] 743 tests, 100% coverage maintained
 
 ### Phase 5: Security (Week 11, 0.5 weeks) - Optimized
 - [ ] Password hashing (bcrypt, auth stubs from Phase 3)
@@ -182,6 +185,8 @@ npm run docker:down    # Stop broker
                               │  (Python)   │                  │ (ESP32/RPi)│
                               └─────────────┘                  └────────────┘
 ```
+
+**For detailed architecture documentation →** See [docs/architecture.md](docs/architecture.md) for comprehensive system diagrams, data flow, component relationships, and MQTT topic structure.
 
 ## MQTT Topic Structure
 

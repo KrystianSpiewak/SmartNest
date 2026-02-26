@@ -5,6 +5,8 @@ Main dashboard displaying system status, device summary, recent activity, and al
 
 from __future__ import annotations
 
+from typing import Any
+
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
@@ -71,6 +73,34 @@ class DashboardScreen:
         menu = self._render_menu()
         self.console.print(menu)
 
+    def render_live(
+        self,
+        device_count: int | None = None,
+        system_status: dict[str, Any] | None = None,
+    ) -> Group:
+        """Render dashboard as a live-updatable Group.
+
+        Used with Rich Live for real-time updates at 4 FPS.
+
+        Args:
+            device_count: Total number of devices (None if API unavailable)
+            system_status: System status from MQTT (None if not connected)
+
+        Returns:
+            Rich Group containing all dashboard panels
+        """
+        return Group(
+            self._render_system_status(mqtt_status=system_status),
+            Text(),  # Blank line
+            self._render_device_summary(device_count=device_count),
+            Text(),  # Blank line
+            self._render_recent_activity(),
+            Text(),  # Blank line
+            self._render_alerts(),
+            Text(),  # Blank line
+            self._render_menu(),
+        )
+
     def _render_header(self) -> Panel:
         """Render ASCII art header with title.
 
@@ -98,11 +128,14 @@ class DashboardScreen:
             expand=True,
         )
 
-    def _render_system_status(self) -> Panel:
+    def _render_system_status(self, mqtt_status: dict[str, Any] | None = None) -> Panel:
         """Render system status panel.
 
         Shows status of MQTT broker, backend API, and database.
-        Currently uses placeholder data.
+        Displays real-time data from MQTT messages or placeholders.
+
+        Args:
+            mqtt_status: System status from MQTT (None if not connected)
 
         Returns:
             Rich Panel with system status table
@@ -112,10 +145,17 @@ class DashboardScreen:
         table.add_column(justify="left")
         table.add_column(style="dim", justify="left")
 
-        # MQTT Broker
+        # MQTT Broker - show status from MQTT message if available
+        if mqtt_status and mqtt_status.get("status") == "online":
+            mqtt_text = Text("● CONNECTED", style="bold green")
+        elif mqtt_status and mqtt_status.get("status") == "offline":
+            mqtt_text = Text("● OFFLINE", style="bold red")
+        else:
+            mqtt_text = Text("● LOADING...", style="bold yellow")
+
         table.add_row(
             "MQTT Broker:",
-            Text("● CONNECTED", style="bold green"),
+            mqtt_text,
             "Uptime: --",
         )
 

@@ -45,6 +45,8 @@ Quick reference for SmartNest project documentation and configuration.
 - [backend/mqtt/discovery.py](../backend/mqtt/discovery.py) - Device discovery protocol (DeviceDiscoveryMessage, DiscoveryConsumer)
 
 ### Developer Guides
+- [architecture.md](architecture.md) - System architecture, component relationships, data flow diagrams, MQTT topics
+- [tui_developer_guide.md](tui_developer_guide.md) - TUI screen implementation patterns, Rich patterns, MQTT integration, testing strategies
 - [device_implementation_guide.md](device_implementation_guide.md) - How to create new device types using BaseDevice
 - [discovery_protocol.md](discovery_protocol.md) - SmartNest device discovery protocol specification
 
@@ -65,10 +67,11 @@ Quick reference for SmartNest project documentation and configuration.
 - [tests/unit/devices/](../tests/unit/devices/) - Device module unit tests
 - [tests/unit/mqtt/](../tests/unit/mqtt/) - MQTT module unit tests  
 - [tests/unit/logging/](../tests/unit/logging/) - Logging module unit tests
-- [tests/unit/database/](../tests/unit/database/) - Database module unit tests (Week 6)
-- [tests/unit/api/](../tests/unit/api/) - API models/routes unit tests (Week 6)
-- [tests/integration/mqtt/](../tests/integration/mqtt/) - MQTT bridge integration tests (Week 6)
-- [tests/integration/api/routes/](../tests/integration/api/routes/) - API endpoint integration tests (Week 6)
+- [tests/unit/database/](../tests/unit/database/) - Database module unit tests
+- [tests/unit/api/](../tests/unit/api/) - API models/routes unit tests
+- [tests/unit/tui/](../tests/unit/tui/) - TUI screens unit tests (Week 7)
+- [tests/integration/mqtt/](../tests/integration/mqtt/) - MQTT bridge integration tests
+- [tests/integration/api/routes/](../tests/integration/api/routes/) - API endpoint integration tests
 
 ### Git Configuration
 - [.gitattributes](../.gitattributes) - Line ending configuration (LF)
@@ -95,6 +98,106 @@ npm run typecheck      # mypy strict mode
 npm run test           # pytest
 npm run validate       # Full pipeline (lint + format + typecheck + test)
 ```
+
+## TUI Usage
+
+### Launching the TUI
+
+```bash
+# Start backend API (required)
+npm run dev           # Terminal 1: FastAPI server on http://localhost:8000
+
+# Start MQTT broker (required)
+npm run docker:up     # HiveMQ CE on localhost:1883
+
+# Launch TUI (Terminal 2)
+npm run tui           # Start SmartNest Terminal UI
+```
+
+### Keyboard Shortcuts
+
+**Global Navigation:**
+- `F1` - Dashboard (system overview)
+- `F2` - Settings (user management)
+- `F3` - Device List (all devices)
+- `F4` - Sensor View (sensor data & stats)
+- `Q` - Quit application
+- `Ctrl+C` - Emergency exit
+
+**Device List (F3):**
+- `L` - Filter by Lights
+- `S` - Filter by Sensors
+- `W` - Filter by Switches
+- `A` - Show All devices
+- `/` - Search by name/location
+- `Enter` - Open device detail
+
+**Device Detail (Select from list):**
+- `P` - Toggle power (lights)
+- `+` / `-` - Adjust brightness ±10% (lights)
+- `↑` / `↓` - Adjust color temp ±500K (lights)
+- `R` - Refresh device state
+- `Esc` - Back to device list
+
+**Sensor View (F4):**
+- `R` - Refresh sensor data
+- `E` - Export to CSV (future)
+
+**Settings (F2):**
+- View user list with roles
+- Future: Add/remove users
+
+### Screen Descriptions
+
+**Dashboard (F1):**
+- System overview with live MQTT status
+- Device count and active sensors
+- Quick health indicators
+- Auto-refreshes at 4 FPS (250ms)
+
+**Device List (F3):**
+- Tabular listing of all devices
+- Filter by type (lights, sensors, switches)
+- Search by name or location
+- Color-coded status (online/offline)
+
+**Device Detail (Select device):**
+- Comprehensive device information
+- Real-time state display
+- Interactive controls for smart lights
+- Command feedback
+
+**Sensor View (F4):**
+- Latest readings from all sensors
+- 24-hour statistics (min, max, average)
+- Timestamp tracking
+- Auto-refresh
+
+**Settings (F2):**
+- User management interface
+- Role display (admin, user, readonly)
+- Active status indicators
+- Future: User creation and deletion
+
+### Troubleshooting TUI Issues
+
+**"API Error: Unable to fetch devices"**
+- Check backend is running: `npm run dev`
+- Verify API reachable: `curl http://localhost:8000/api/devices`
+
+**"MQTT: OFFLINE" status in dashboard**
+- Check broker is running: `npm run docker:health`
+- Restart broker: `npm run docker:down && npm run docker:up`
+
+**TUI not updating in real-time**
+- Verify MQTT connection (check logs in terminal where `npm run tui` ran)
+- Ensure devices are publishing state updates
+- Restart TUI: `Ctrl+C` then `npm run tui`
+
+**Display corruption or formatting issues**
+- Clear terminal: `clear` (bash) or `cls` (PowerShell)
+- Resize terminal to minimum 120x30 characters
+- Ensure terminal supports ANSI colors (use Windows Terminal or Git Bash, not CMD)
 
 ## Mutation Testing
 
@@ -209,6 +312,10 @@ Available via `Ctrl+Shift+P` → "Tasks: Run Task" or via the `run_task` tool:
 
 ## Developer Guides
 
+- [architecture.md](architecture.md) - Comprehensive system architecture with diagrams
+- [tui_developer_guide.md](tui_developer_guide.md) - TUI development patterns and testing
+- [device_implementation_guide.md](device_implementation_guide.md) - Creating new device types
+- [discovery_protocol.md](discovery_protocol.md) - Device discovery specification
 - [mutation_testing.md](mutation_testing.md) - Mutation testing with mutmut, understanding results, known limitations, and mutation score calculation
 
 ## Code Quality Standards
@@ -239,25 +346,59 @@ Bypass (not recommended): `git commit --no-verify`
 
 ```
 SmartNest/
-├── backend/           # Backend service
-│   ├── config.py     # Application settings (pydantic-settings)
-│   ├── mqtt/         # MQTT client module
-│   │   ├── topics.py # Topic builder
-│   │   ├── config.py # Connection configuration (Pydantic)
-│   │   └── client.py # SmartNestMQTTClient
-│   ├── logging/      # Structured logging (structlog)
-│   │   ├── config.py # configure_logging, get_logger
-│   │   ├── catalog.py# Message catalog (MessageCode enum)
-│   │   └── utils.py  # Correlation tracking, log_with_code
-│   └── __init__.py
-├── tests/            # Test suite (369 tests: 365 unit + 4 integration, 100% coverage)
-│   ├── unit/mqtt/    # MQTT unit tests
-│   ├── unit/logging/ # Logging unit tests
-│   ├── unit/test_config.py # AppSettings tests
-│   └── integration/  # Integration tests
-├── config/           # Configuration files
-├── docs/             # Documentation (this directory)
-└── scripts/          # Utility scripts
+├── backend/                # Backend service
+│   ├── config.py          # Application settings (pydantic-settings)
+│   ├── app.py             # FastAPI application
+│   ├── main.py            # uvicorn entry point
+│   ├── api/               # REST API layer
+│   │   ├── routes/        # API endpoints (devices, users, sensors)
+│   │   ├── models/        # Pydantic request/response models
+│   │   └── mqtt_bridge.py # MQTT-to-Database bridge
+│   ├── database/          # Data access layer
+│   │   ├── connection.py  # Async connection manager
+│   │   ├── schema.py      # SQLite schema
+│   │   └── repositories/  # Repository pattern (devices, users)
+│   ├── mqtt/              # MQTT client module
+│   │   ├── topics.py      # Topic builder
+│   │   ├── config.py      # Connection configuration (Pydantic)
+│   │   ├── client.py      # SmartNestMQTTClient
+│   │   └── discovery.py   # Device discovery protocol
+│   ├── logging/           # Structured logging (structlog)
+│   │   ├── config.py      # configure_logging, get_logger
+│   │   ├── catalog.py     # Message catalog (MessageCode enum)
+│   │   └── utils.py       # Correlation tracking, log_with_code
+│   ├── tui/               # Terminal User Interface
+│   │   ├── app.py         # Main TUI application (SmartNestTUI)
+│   │   ├── __main__.py    # TUI entry point
+│   │   └── screens/       # Screen implementations
+│   │       ├── dashboard.py      # System overview with MQTT live updates
+│   │       ├── device_list.py    # Device listing with filtering
+│   │       ├── device_detail.py  # Device controls
+│   │       ├── sensor_view.py    # Sensor data & 24h stats
+│   │       └── settings.py       # User management
+│   ├── devices/           # Mock IoT devices
+│   │   ├── base.py        # BaseDevice abstract class
+│   │   ├── mock_light.py  # Smart light mock
+│   │   ├── mock_temperature_sensor.py
+│   │   └── mock_motion_sensor.py
+│   └── auth/              # Authentication module
+│       └── password.py    # Bcrypt password hashing
+├── tests/                 # Test suite (743 tests: 721 unit + 22 integration, 100% coverage)
+│   ├── unit/              # Unit tests (mocked dependencies)
+│   │   ├── tui/           # TUI screen tests
+│   │   ├── api/           # API routes and models tests
+│   │   ├── database/      # Database repository tests
+│   │   ├── mqtt/          # MQTT module tests
+│   │   ├── devices/       # Device module tests
+│   │   └── logging/       # Logging tests
+│   └── integration/       # Integration tests (real dependencies)
+│       ├── api/routes/    # API endpoint integration tests
+│       └── mqtt/          # MQTT bridge integration tests
+├── config/                # Configuration files
+│   └── mqtt/              # MQTT broker config (HiveMQ)
+├── docs/                  # Documentation (this directory)
+├── scripts/               # Utility scripts
+└── data/                  # Runtime data (SQLite database, logs)
 ```
 
 ## Quick Reference
@@ -265,6 +406,8 @@ SmartNest/
 | Topic | File |
 |-------|------|
 | Getting started | [README.md](../README.md) |
+| System architecture | [architecture.md](architecture.md) |
+| TUI development | [tui_developer_guide.md](tui_developer_guide.md) |
 | Task commands | [package.json](../package.json) |
 | Linting/formatting | [pyproject.toml](../pyproject.toml) |
 | Line endings | [.gitattributes](../.gitattributes) |
@@ -291,5 +434,5 @@ SmartNest/
 
 ---
 
-**Last Updated:** February 12, 2026 (Post-Phase 3 completion - Backend API + Mutation Testing)  
+**Last Updated:** February 26, 2026 (Post-TUI Implementation - Week 7)  
 **Project:** SmartNest Home Automation Management System
