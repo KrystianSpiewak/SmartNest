@@ -10,7 +10,12 @@ import os
 
 from backend.logging import configure_logging
 
-if __name__ == "__main__":
+
+def main() -> None:
+    """Main entry point for TUI application.
+
+    Configures logging and launches the TUI.
+    """
     # Configure logging before importing the rest of the TUI stack.
     #
     # Some modules (e.g. MQTT client) create structlog loggers at import time.
@@ -26,6 +31,10 @@ if __name__ == "__main__":
     logging.getLogger("paho.mqtt").setLevel(logging.CRITICAL)
     logging.getLogger("paho.mqtt.client").setLevel(logging.CRITICAL)
 
-    from backend.tui.app import main
+    from backend.tui.app import main as tui_main  # noqa: PLC0415
 
+    tui_main()
+
+
+if __name__ == "__main__":
     main()

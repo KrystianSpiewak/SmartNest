@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
+import inspect
+import logging
 from unittest.mock import MagicMock, patch
 
 import backend.tui.__main__
@@ -18,14 +18,51 @@ class TestTUIMain:
         # Module already imported at module level, just verify it exists
         assert hasattr(backend.tui.__main__, "main")
 
-    @patch("backend.tui.__main__.main")
-    def test_main_entry_point_calls_main(self, mock_main: MagicMock) -> None:
+    def test_main_entry_point_calls_main(self) -> None:
         """Running __main__ calls main() function."""
-        # Simulate running: python -m backend.tui
-        with patch.object(sys, "argv", ["backend.tui"]):
-            # Reload to trigger if __name__ == "__main__" block
-            importlib.reload(backend.tui.__main__)
+        # The __name__ == "__main__" block is only executed when running
+        # as a module, not during import. We test that the block exists
+        # and would call main() by checking the module structure.
+        source = inspect.getsource(backend.tui.__main__)
+        # Verify the module has the __main__ guard and calls main()
+        assert 'if __name__ == "__main__"' in source
+        assert "main()" in source
 
-            # main() should have been called when module was executed
-            # Note: This test verifies the structure, actual execution tested manually
-            assert callable(mock_main)
+    @patch("backend.tui.__main__.configure_logging")
+    @patch("backend.tui.app.main")
+    def test_main_function_configures_logging(
+        self, mock_tui_main: MagicMock, mock_configure_logging: MagicMock
+    ) -> None:
+        """main() configures logging before launching TUI."""
+        backend.tui.__main__.main()
+
+        # Verify logging was configured
+        mock_configure_logging.assert_called_once_with(level="CRITICAL", renderer="console")
+        # Verify TUI was launched
+        mock_tui_main.assert_called_once()
+
+    @patch.dict("os.environ", {"SMARTNEST_TUI_LOG_LEVEL": "DEBUG"})
+    @patch("backend.tui.__main__.configure_logging")
+    @patch("backend.tui.app.main")
+    def test_main_function_respects_log_level_env_var(
+        self, mock_tui_main: MagicMock, mock_configure_logging: MagicMock
+    ) -> None:
+        """main() uses SMARTNEST_TUI_LOG_LEVEL environment variable."""
+        backend.tui.__main__.main()
+
+        # Verify logging was configured with custom level
+        mock_configure_logging.assert_called_once_with(level="DEBUG", renderer="console")
+        mock_tui_main.assert_called_once()
+
+    @patch("backend.tui.__main__.configure_logging")
+    @patch("backend.tui.app.main")
+    def test_main_function_silences_paho_loggers(
+        self, mock_tui_main: MagicMock, mock_configure_logging: MagicMock
+    ) -> None:
+        """main() silences Paho MQTT loggers to prevent terminal interference."""
+        backend.tui.__main__.main()
+
+        # Verify Paho loggers are set to CRITICAL
+        assert logging.getLogger("paho").level == logging.CRITICAL
+        assert logging.getLogger("paho.mqtt").level == logging.CRITICAL
+        assert logging.getLogger("paho.mqtt.client").level == logging.CRITICAL

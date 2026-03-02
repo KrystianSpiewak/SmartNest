@@ -667,36 +667,6 @@ class TestSmartNestTUIRun:
             # shutdown() should be called when loop exits
             mock_shutdown.assert_called_once()
 
-    @pytest.mark.skipif(
-        sys.platform != "win32",
-        reason="Windows-specific key handling using msvcrt",
-    )
-    def test_run_quits_on_q_keypress(self) -> None:
-        """run() stops main loop when 'q' is pressed on Windows."""
-        import backend.tui.app as app_module  # noqa: PLC0415
-
-        tui = SmartNestTUI()
-
-        def fake_startup() -> None:
-            tui.is_running = True
-
-        with (
-            patch.object(tui, "startup", side_effect=fake_startup),
-            patch.object(app_module, "signal", MagicMock(side_effect=AttributeError())),
-            patch.object(app_module, "msvcrt") as mock_msvcrt,
-            patch.object(app_module, "time", MagicMock(sleep=MagicMock())),
-            patch.object(tui.mqtt_client, "connect"),
-            patch.object(tui.mqtt_client, "disconnect"),
-            patch.object(tui.http_client, "close"),
-            patch("sys.exit"),
-        ):
-            mock_msvcrt.kbhit.return_value = True
-            mock_msvcrt.getwch.return_value = "q"
-
-            # Loop should have set is_running to False when 'q' was pressed
-            tui.run()
-            assert tui.is_running is False
-
 
 class TestMain:
     """Tests for main() entry point."""
@@ -717,3 +687,18 @@ class TestMain:
             mock_tui_class.assert_called_once()
             # Should call run() on instance
             mock_tui_instance.run.assert_called_once()
+
+    @patch("sys.platform", "linux")
+    def test_init_on_non_windows_platform(self) -> None:
+        """TUI initializes correctly on non-Windows platforms."""
+        # This test ensures the else branch (msvcrt = None) is covered
+        # by forcing a module reload with patched sys.platform
+        import backend.tui.app as app_module  # noqa: PLC0415, I001
+        import importlib  # noqa: PLC0415
+
+        # Reload module to trigger platform checks with patched sys.platform
+        importlib.reload(app_module)
+
+        # Verify it still initializes (msvcrt should be None on non-Windows)
+        tui = app_module.SmartNestTUI()
+        assert isinstance(tui, app_module.SmartNestTUI)

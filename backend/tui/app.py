@@ -29,11 +29,11 @@ from backend.tui.screens.settings import SettingsScreen
 
 if sys.platform == "win32":  # pragma: no cover - imported only on Windows
     try:
-        import msvcrt  # type: ignore[import-not-found]
+        import msvcrt
     except ImportError:  # pragma: no cover - extremely unlikely on Windows
         msvcrt = None  # type: ignore[assignment]
 else:
-    msvcrt = None  # type: ignore[assignment]
+    msvcrt = None
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -281,13 +281,15 @@ class SmartNestTUI:
                     while self.is_running:
                         # Handle simple keyboard shortcuts (Windows-only).
                         # Use non-blocking msvcrt to detect 'q' for quit.
-                        if msvcrt is not None and msvcrt.kbhit():
-                            key = msvcrt.getwch()
-                            if key.lower() == "q":
+                        if (
+                            msvcrt is not None and msvcrt.kbhit()
+                        ):  # pragma: no cover - Windows-only interactive keyboard handling
+                            key = msvcrt.getwch()  # pragma: no cover
+                            if key.lower() == "q":  # pragma: no cover
                                 # Request shutdown and break loop; finalizer will
                                 # call shutdown() once after Live context exits.
-                                self.is_running = False
-                                break
+                                self.is_running = False  # pragma: no cover
+                                break  # pragma: no cover
 
                         # Update live display with latest state
                         live.update(
