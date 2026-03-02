@@ -43,6 +43,16 @@ class TestClientInit:
 
         mock_paho_client.enable_logger.assert_called_once_with(_paho_logger)
 
+    def test_can_disable_paho_logger(self, mqtt_config: MQTTConfig) -> None:
+        """Caller may disable enable_logger to keep UIs stable."""
+        with patch("backend.mqtt.client.mqtt.Client") as mock_cls:
+            mock_paho_client = MagicMock()
+            mock_cls.return_value = mock_paho_client
+
+            SmartNestMQTTClient(mqtt_config, enable_paho_logger=False)
+
+            mock_paho_client.enable_logger.assert_not_called()
+
     def test_sets_reconnect_delay(
         self, client: SmartNestMQTTClient, mock_paho_client: MagicMock
     ) -> None:

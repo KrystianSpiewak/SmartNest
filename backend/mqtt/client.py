@@ -70,7 +70,7 @@ class SmartNestMQTTClient:
         client.disconnect()
     """
 
-    def __init__(self, config: MQTTConfig) -> None:
+    def __init__(self, config: MQTTConfig, *, enable_paho_logger: bool = True) -> None:
         self._config = config
         self._connected = threading.Event()
         self._paho = mqtt.Client(
@@ -83,8 +83,13 @@ class SmartNestMQTTClient:
         self._paho.on_disconnect = self._on_disconnect
         self._paho.on_message = self._on_message
 
-        # Route Paho internal logs through stdlib logging
-        self._paho.enable_logger(_paho_logger)
+        # Route Paho internal logs through stdlib logging.
+        #
+        # NOTE: For interactive UIs (Rich Live), interleaved Paho debug logs can
+        # cause flicker / overlapping output in some terminals. Callers may
+        # disable this to keep the UI stable.
+        if enable_paho_logger:
+            self._paho.enable_logger(_paho_logger)
 
         # Configure native exponential-backoff reconnection
         self._paho.reconnect_delay_set(

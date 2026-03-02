@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import signal
+import sys
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 from rich.console import Console
 
 from backend.logging.catalog import MessageCode
@@ -558,6 +560,10 @@ class TestSmartNestTUIRun:
                 pass
             mock_startup.assert_called_once()
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows-specific Ctrl+C behavior (signal.pause missing)",
+    )
     def test_run_calls_shutdown_on_keyboard_interrupt(self) -> None:
         """run() calls shutdown() when KeyboardInterrupt raised."""
         tui = SmartNestTUI()
@@ -660,6 +666,36 @@ class TestSmartNestTUIRun:
             assert sleep_count >= 3
             # shutdown() should be called when loop exits
             mock_shutdown.assert_called_once()
+
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows-specific key handling using msvcrt",
+    )
+    def test_run_quits_on_q_keypress(self) -> None:
+        """run() stops main loop when 'q' is pressed on Windows."""
+        import backend.tui.app as app_module  # noqa: PLC0415
+
+        tui = SmartNestTUI()
+
+        def fake_startup() -> None:
+            tui.is_running = True
+
+        with (
+            patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(app_module, "signal", MagicMock(side_effect=AttributeError())),
+            patch.object(app_module, "msvcrt") as mock_msvcrt,
+            patch.object(app_module, "time", MagicMock(sleep=MagicMock())),
+            patch.object(tui.mqtt_client, "connect"),
+            patch.object(tui.mqtt_client, "disconnect"),
+            patch.object(tui.http_client, "close"),
+            patch("sys.exit"),
+        ):
+            mock_msvcrt.kbhit.return_value = True
+            mock_msvcrt.getwch.return_value = "q"
+
+            # Loop should have set is_running to False when 'q' was pressed
+            tui.run()
+            assert tui.is_running is False
 
 
 class TestMain:

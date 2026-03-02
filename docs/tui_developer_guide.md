@@ -288,7 +288,7 @@ with Live(
     dashboard.render_live(device_count=5, system_status=status),
     console=console,
     refresh_per_second=4,  # 4 FPS = 250ms refresh
-    screen=False,           # Don't use alternate screen buffer
+    screen=True,           # Use alternate screen for clean redraws
 ) as live:
     while is_running:
         live.update(dashboard.render_live(device_count=count, system_status=status))
@@ -299,7 +299,17 @@ with Live(
 - Use context manager (`with Live() as live:`)
 - Call `live.update()` to refresh display
 - Match sleep duration to `refresh_per_second` (4 FPS = 250ms)
-- Pass `screen=False` to avoid alternate buffer (keeps history visible)
+- Use `screen=True` so the TUI uses the alternate screen buffer; on exit the main buffer is restored and redraws are cleaner.
+
+#### 7. Terminal behavior and why automated runs look different
+
+**Why you might see “stale” or duplicated output:**
+- **Scrollback accumulation:** Each run prints log lines (to stderr) and a shutdown message. If you run the TUI multiple times without clearing the terminal, you get repeated “Shutting down…” and log lines in scrollback. Clearing the terminal between runs (or using a terminal that supports alternate screen well) reduces this.
+- **In-place redraws:** Rich Live updates the same region. Some terminals (e.g. Git Bash/mintty on Windows) do not handle alternate screen or cursor positioning well, so updates can appear to append instead of redrawing in place, leaving a “history” of frames in scrollback.
+- **Recommendation:** For the best experience, run the TUI in **Windows Terminal** or **PowerShell**. Git Bash/mintty is known to show these issues more often.
+
+**Why automated runs don’t show the same issues:**
+- When the TUI is run from an automated context (e.g. CI), there is no interactive terminal attached: output is captured as text or escape sequences, and the Live display is not shown to a human. So rendering glitches (duplicate output, stale scrollback, append-only updates) do not appear the same way as when you run it locally in your own terminal.
 
 ---
 

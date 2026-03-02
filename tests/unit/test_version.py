@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import backend
 
 
@@ -28,7 +30,10 @@ class TestBackendVersion:
     def test_version_matches_package_json(self) -> None:
         """Version matches package.json."""
         package_json_path = Path(__file__).parent.parent.parent / "package.json"
-        with open(package_json_path) as f:
+        if not package_json_path.exists():
+            pytest.skip("package.json not available in this environment")
+
+        with package_json_path.open() as f:
             package_data = json.load(f)
 
         assert backend.__version__ == package_data["version"]

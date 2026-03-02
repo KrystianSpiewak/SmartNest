@@ -6,6 +6,7 @@ Main TUI application class with lifespan management and graceful shutdown.
 from __future__ import annotations
 
 import json
+import os
 import signal
 import sys
 import time
@@ -25,6 +26,14 @@ from backend.tui.screens.device_detail import DeviceDetailScreen
 from backend.tui.screens.device_list import DeviceListScreen
 from backend.tui.screens.sensor_view import SensorViewScreen
 from backend.tui.screens.settings import SettingsScreen
+
+if sys.platform == "win32":  # pragma: no cover - imported only on Windows
+    try:
+        import msvcrt  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - extremely unlikely on Windows
+        msvcrt = None  # type: ignore[assignment]
+else:
+    msvcrt = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -69,8 +78,17 @@ class SmartNestTUI:
             api_base_url: Base URL for backend API (default: http://localhost:8000)
             mqtt_config: MQTT configuration (default: localhost:1883)
         """
-        # Rich auto-detects terminal capabilities correctly (Git Bash, PowerShell, etc.)
-        self.console = Console()
+        # Force interactive terminal behavior for Rich Live.
+        #
+        # In some environments (e.g. terminals that report non-tty / limited
+        # capabilities), Rich may disable cursor control and Live will "print"
+        # each frame, which looks like stale history / duplicated renders.
+        #
+        # You can disable this forcing by setting SMARTNEST_TUI_FORCE_TERMINAL=0.
+        force_terminal = os.getenv("SMARTNEST_TUI_FORCE_TERMINAL", "1") != "0"
+        self.console = (
+            Console(force_terminal=True, force_interactive=True) if force_terminal else Console()
+        )
         self.is_running = False
         self.api_base_url = api_base_url
         self.http_client = httpx.Client(base_url=api_base_url, timeout=5.0)
@@ -87,7 +105,9 @@ class SmartNestTUI:
 
         # MQTT client for real-time updates
         self.mqtt_config = mqtt_config or MQTTConfig(client_id="smartnest_tui")
-        self.mqtt_client = SmartNestMQTTClient(self.mqtt_config)
+        # Disable Paho internal debug logging for the TUI to avoid interleaving
+        # with Rich Live rendering in terminals with imperfect ANSI support.
+        self.mqtt_client = SmartNestMQTTClient(self.mqtt_config, enable_paho_logger=False)
 
         # System status state (updated via MQTT)
         self.system_status: dict[str, Any] = {}
@@ -242,21 +262,16 @@ class SmartNestTUI:
             # Fetch initial device count
             device_count = self._fetch_device_count()
 
-            # Display help message
-            self.console.print()
-            self.console.print(
-                "[dim]Dashboard loaded. Press Ctrl+C to exit.[/dim]", justify="center"
-            )
-            self.console.print()
-
-            # Live update loop with Rich Live (4 FPS = 250ms refresh)
+            # Live update loop with Rich Live (4 FPS = 250ms refresh).
+            # Help text is inside the dashboard render_live so we don't leave
+            # extra lines on the main buffer before switching to alternate screen.
             with Live(
                 self.dashboard.render_live(
                     device_count=device_count, system_status=self.system_status
                 ),
                 console=self.console,
-                refresh_per_second=4,
-                screen=False,
+                screen=True,
+                auto_refresh=False,
             ) as live:
                 # Keep alive until Ctrl+C (cross-platform compatible)
                 try:
@@ -264,12 +279,24 @@ class SmartNestTUI:
                 except AttributeError:
                     # Windows doesn't have signal.pause(), use alternative
                     while self.is_running:
+                        # Handle simple keyboard shortcuts (Windows-only).
+                        # Use non-blocking msvcrt to detect 'q' for quit.
+                        if msvcrt is not None and msvcrt.kbhit():
+                            key = msvcrt.getwch()
+                            if key.lower() == "q":
+                                # Request shutdown and break loop; finalizer will
+                                # call shutdown() once after Live context exits.
+                                self.is_running = False
+                                break
+
                         # Update live display with latest state
                         live.update(
                             self.dashboard.render_live(
                                 device_count=device_count, system_status=self.system_status
-                            )
+                            ),
+                            refresh=False,
                         )
+                        live.refresh()
                         time.sleep(0.25)  # 4 FPS
 
         except KeyboardInterrupt:
@@ -277,6 +304,7 @@ class SmartNestTUI:
             pass
         finally:
             # Always call shutdown() to ensure clean exit (idempotent)
+            self.console.clear()
             self.shutdown()
 
 

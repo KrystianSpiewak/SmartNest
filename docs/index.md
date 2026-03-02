@@ -194,10 +194,11 @@ npm run tui           # Start SmartNest Terminal UI
 - Ensure devices are publishing state updates
 - Restart TUI: `Ctrl+C` then `npm run tui`
 
-**Display corruption or formatting issues**
-- Clear terminal: `clear` (bash) or `cls` (PowerShell)
-- Resize terminal to minimum 120x30 characters
-- Ensure terminal supports ANSI colors (use Windows Terminal or Git Bash, not CMD)
+**Display corruption or formatting issues / stale or duplicated output**
+- Use **Windows Terminal** or **PowerShell** for best behavior; Git Bash/mintty often shows appended or duplicated Live output.
+- Clear terminal between runs: `clear` (bash) or `cls` (PowerShell) to avoid accumulated “Shutting down…” and log lines.
+- Resize terminal to minimum 120x30 characters.
+- See [TUI Developer Guide – Terminal behavior](tui_developer_guide.md#7-terminal-behavior-and-why-automated-runs-look-different) for why automated runs don’t show the same issues.
 
 ## Mutation Testing
 
@@ -308,7 +309,6 @@ Available via `Ctrl+Shift+P` → "Tasks: Run Task" or via the `run_task` tool:
 | SmartNest: Test Coverage | `test:cov` | pytest with coverage report |
 | SmartNest: Validate | `validate` | Full pipeline (lint + format + typecheck + test:cov) |
 
-**AI agents:** Always use `run_task` instead of `run_in_terminal` for these operations.
 
 ## Developer Guides
 

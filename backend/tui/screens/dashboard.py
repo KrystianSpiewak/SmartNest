@@ -90,6 +90,8 @@ class DashboardScreen:
             Rich Group containing all dashboard panels
         """
         return Group(
+            self._render_header(),
+            Text(),  # Blank line
             self._render_system_status(mqtt_status=system_status),
             Text(),  # Blank line
             self._render_device_summary(device_count=device_count),
@@ -99,6 +101,8 @@ class DashboardScreen:
             self._render_alerts(),
             Text(),  # Blank line
             self._render_menu(),
+            Text(),  # Blank line
+            Text("Press [q] or Ctrl+C to exit.", style="dim", justify="center"),
         )
 
     def _render_header(self) -> Panel:
