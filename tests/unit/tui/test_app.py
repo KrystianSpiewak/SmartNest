@@ -174,6 +174,20 @@ class TestSmartNestTUIStartup:
             # Should subscribe to system status topic
             mock_subscribe.assert_called_once_with("smartnest/system/status")
 
+    def test_startup_adds_topic_handler_with_exact_args(self) -> None:
+        """startup() must call add_topic_handler with exact topic and callback."""
+        tui = SmartNestTUI()
+        with (
+            patch.object(tui.mqtt_client, "connect"),
+            patch.object(tui.mqtt_client, "subscribe"),
+            patch.object(tui.mqtt_client, "add_topic_handler") as mock_add_handler,
+        ):
+            tui.startup()
+            # Verify exact topic string and callback method
+            mock_add_handler.assert_called_once_with(
+                "smartnest/system/status", tui._on_system_status
+            )
+
     def test_startup_renders_dashboard(self) -> None:
         """startup() renders the dashboard screen."""
         tui = SmartNestTUI()
@@ -414,6 +428,69 @@ class TestSmartNestTUIMQTTCallbacks:
             for call in mock_log.call_args_list
         )
 
+    def test_on_system_status_success_log_has_exact_kwargs(self) -> None:
+        """_on_system_status() success log must include exact logger, level, topic, payload."""
+        tui = SmartNestTUI()
+        mock_client = MagicMock()
+        mock_message = MagicMock()
+        mock_message.topic = "smartnest/system/status"
+        mock_message.payload = b'{"status": "online"}'
+
+        with patch("backend.tui.app.log_with_code") as mock_log:
+            tui._on_system_status(mock_client, None, mock_message)
+
+            received_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.TUI_MQTT_MESSAGE_RECEIVED
+            ]
+            assert len(received_calls) == 1
+            call = received_calls[0]
+            # Verify logger is not None - kills logger=None mutation
+            assert call.args[0] is not None
+            # Verify exact log level - kills "XXdebugXX" mutation
+            assert call.args[1] == "debug"
+            # Verify topic kwarg - kills topic=None and removal mutations
+            assert "topic" in call.kwargs
+            assert call.kwargs["topic"] == "smartnest/system/status"
+            assert call.kwargs["topic"] is not None
+            # Verify payload kwarg - kills payload=None and removal mutations
+            assert "payload" in call.kwargs
+            assert call.kwargs["payload"] == {"status": "online"}
+            assert call.kwargs["payload"] is not None
+
+    def test_on_system_status_error_log_has_exact_kwargs(self) -> None:
+        """_on_system_status() error log must include exact logger, level, error, topic."""
+        tui = SmartNestTUI()
+        mock_client = MagicMock()
+        mock_message = MagicMock()
+        mock_message.topic = "smartnest/system/status"
+        mock_message.payload = b"not valid json"
+
+        with patch("backend.tui.app.log_with_code") as mock_log:
+            tui._on_system_status(mock_client, None, mock_message)
+
+            error_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.TUI_MQTT_MESSAGE_PARSE_ERROR
+            ]
+            assert len(error_calls) == 1
+            call = error_calls[0]
+            # Verify logger is not None - kills logger=None mutation
+            assert call.args[0] is not None
+            # Verify exact log level - kills "XXwarningXX" mutation
+            assert call.args[1] == "warning"
+            # Verify error kwarg - kills error=None, error=str(None), removal
+            assert "error" in call.kwargs
+            assert call.kwargs["error"] is not None
+            assert isinstance(call.kwargs["error"], str)
+            assert len(call.kwargs["error"]) > 0
+            # Verify topic kwarg - kills topic=None and removal mutations
+            assert "topic" in call.kwargs
+            assert call.kwargs["topic"] == "smartnest/system/status"
+            assert call.kwargs["topic"] is not None
+
     def test_on_system_status_handles_invalid_json(self) -> None:
         """_on_system_status() handles invalid JSON gracefully."""
         tui = SmartNestTUI()
@@ -547,9 +624,14 @@ class TestSmartNestTUIRun:
 
     def test_run_calls_startup(self) -> None:
         """run() calls startup() before main loop."""
+        import backend.tui.app as app_module  # noqa: PLC0415
+
         tui = SmartNestTUI()
         with (
             patch.object(tui, "startup") as mock_startup,
+            patch.object(app_module, "signal", MagicMock(spec=[])),  # No pause attr → Windows path
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
             patch("time.sleep", side_effect=KeyboardInterrupt),  # Exit loop immediately
             patch.object(tui, "shutdown"),
         ):
@@ -585,6 +667,8 @@ class TestSmartNestTUIRun:
 
     def test_run_handles_graceful_shutdown(self) -> None:
         """run() handles graceful shutdown in finally block."""
+        import backend.tui.app as app_module  # noqa: PLC0415
+
         tui = SmartNestTUI()
 
         def fake_startup() -> None:
@@ -592,6 +676,9 @@ class TestSmartNestTUIRun:
 
         with (
             patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(app_module, "signal", MagicMock(spec=[])),  # No pause attr → Windows path
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
             patch("time.sleep", side_effect=KeyboardInterrupt),
             patch("sys.exit") as mock_exit,
             patch.object(tui.console, "print"),
@@ -623,6 +710,8 @@ class TestSmartNestTUIRun:
         with (
             patch.object(tui, "startup", side_effect=fake_startup),
             patch.object(app_module, "signal", mock_signal),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
             patch.object(tui, "shutdown"),
         ):
             try:
@@ -658,6 +747,8 @@ class TestSmartNestTUIRun:
         with (
             patch.object(tui, "startup", side_effect=fake_startup),
             patch.object(app_module, "signal", mock_signal),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
             patch.object(app_module, "time", MagicMock(sleep=MagicMock(side_effect=fake_sleep))),
             patch.object(tui, "shutdown") as mock_shutdown,
         ):

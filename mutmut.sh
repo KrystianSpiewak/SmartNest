@@ -240,9 +240,8 @@ run_all() {
     show_results
     generate_report
     sync_report
-    show_detailed_report  # Generate detailed report with diffs by default
     info "Complete! Summary: reports/mutation_report.txt"
-    info "Detailed with diffs: reports/mutation_report_detailed.txt"
+    info "For diffs run: ./mutmut.sh detailed-report"
 }
 
 # Main script

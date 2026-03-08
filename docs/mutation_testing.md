@@ -86,7 +86,6 @@ These represent legitimate test gaps and opportunities for improvement.
 ### Production Standard
 - **Target:** >95% mutation score for unit-tested code
 - **Status:** ✅ **97.5%** achieved
-- **Conclusion:** Excellent test quality
 
 ## Interpreting Surviving Mutants
 
@@ -108,11 +107,11 @@ Common patterns in surviving mutants:
 
 ## Improving Mutation Score
 
-1. **Focus on survived mutants** (not "no tests")
-2. **Add assertions** for defensive checks
-3. **Verify error messages** in exception tests
-4. **Test edge cases** that expose survived mutants
-5. **Accept practical limits:** 95-98% is excellent, 100% is rarely worth the effort
+### Quick Wins
+- Add assertions for discovered device payload fields
+- Test error message content in conditional render paths
+- Verify `.get()` default values in device data access
+- Test boundary conditions in `_on_system_status` MQTT parsing
 
 ## Resources
 

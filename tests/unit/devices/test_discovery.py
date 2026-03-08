@@ -157,6 +157,11 @@ class TestDeviceDiscoveryMessageModel:
 class TestDiscoveryConsumerLifecycle:
     """Tests for start() and stop() lifecycle."""
 
+    def test_initial_started_is_false(self, consumer: DiscoveryConsumer) -> None:
+        """Consumer _started must be exactly False at init, not None or True."""
+        assert consumer._started is False
+        assert consumer._started is not None
+
     def test_start_subscribes(self, consumer: DiscoveryConsumer) -> None:
         """start() subscribes to the discovery topic."""
         with patch.object(consumer._client, "subscribe") as mock_sub:
@@ -198,6 +203,20 @@ class TestDiscoveryConsumerLifecycle:
         with patch.object(consumer._client, "remove_topic_handler") as mock_rm:
             consumer.stop()
             mock_rm.assert_not_called()
+
+    def test_stop_sets_started_false(self, consumer: DiscoveryConsumer) -> None:
+        """stop() must set _started to exactly False, not None or True."""
+        with (
+            patch.object(consumer._client, "subscribe"),
+            patch.object(consumer._client, "add_topic_handler"),
+        ):
+            consumer.start()
+        assert consumer._started is True
+        with patch.object(consumer._client, "remove_topic_handler"):
+            consumer.stop()
+        # Verify _started is exactly False - kills _started=None and _started=True mutations
+        assert consumer._started is False
+        assert consumer._started is not None
 
 
 # -- Tests: Registry access ----------------------------------------------------
@@ -375,6 +394,9 @@ class TestDiscoveryConsumerRegistration:
             assert call.kwargs["device_id"] == "x"  # Exact device_id from payload
             assert "error" in call.kwargs
             assert call.kwargs["error"] is not None
+            # Verify error is str(exc), not the exception object itself
+            assert isinstance(call.kwargs["error"], str)
+            assert len(call.kwargs["error"]) > 0  # Non-empty string
 
     def test_valid_registration_logs_success(self, consumer: DiscoveryConsumer) -> None:
         """Device registration must log with exact logger and parameters."""

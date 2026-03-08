@@ -197,6 +197,19 @@ class TestBaseDeviceInit:
                 # Verify it's a bound logger (has context)
                 assert isinstance(logger_arg, structlog.BoundLoggerBase)
 
+    def test_init_binds_logger_with_exact_kwargs(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
+        """__init__ must call logger.bind with exact device_id and device_type kwargs."""
+        with (
+            patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client),
+            patch("backend.devices.base.logger") as mock_logger,
+        ):
+            _ConcreteDevice(device_id="bind_test", name="Test", mqtt_config=mqtt_config)
+            mock_logger.bind.assert_called_once_with(
+                device_id="bind_test", device_type="test_device"
+            )
+
 
 # -- Tests: Start --------------------------------------------------------------
 
@@ -371,6 +384,12 @@ class TestBaseDeviceStart:
             # Kills None, "XXdevice_already_runningXX", "DEVICE_ALREADY_RUNNING"
             assert call_args.args[0] == "device_already_running"
 
+    def test_start_passes_timeout_to_client_connect(self, device: _ConcreteDevice) -> None:
+        """start() must forward the timeout parameter to client.connect()."""
+        with patch.object(device._client, "connect", return_value=True) as mock_connect:
+            device.start(timeout=15.0)
+            mock_connect.assert_called_once_with(timeout=15.0)
+
 
 # -- Tests: Stop ---------------------------------------------------------------
 
@@ -515,6 +534,45 @@ class TestBaseDeviceDiscovery:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_DISCOVERY_ANNOUNCED
             ]
             assert len(announced_calls) == 1
+
+    def test_discovery_publishes_with_qos_1(
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
+    ) -> None:
+        """_publish_discovery() must publish with qos=1 for reliable delivery."""
+        device.client.set_connected_for_test(True)
+        device.start()
+
+        publish_calls = mock_paho_client.publish.call_args_list
+        for call in publish_calls:
+            topic = call.args[0] if call.args else call.kwargs.get("topic")
+            if topic == "smartnest/discovery/announce":
+                # Verify qos=1 - kills qos=0, qos=2, qos=None mutations
+                assert call.kwargs.get("qos") == 1
+                return
+
+        pytest.fail("Discovery publish not found")
+
+    def test_discovery_log_has_exact_device_id(
+        self, device: _ConcreteDevice, mock_paho_client: MagicMock
+    ) -> None:
+        """Discovery success log must include exact device_id kwarg."""
+        device.client.set_connected_for_test(True)
+        with patch("backend.devices.base.log_with_code") as mock_log:
+            device.start()
+            announced_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_DISCOVERY_ANNOUNCED
+            ]
+            assert len(announced_calls) == 1
+            call = announced_calls[0]
+            # Verify logger is not None - kills logger=None mutation
+            assert call.args[0] is not None
+            assert call.args[1] == "info"
+            # Verify device_id kwarg - kills device_id=None and removal mutations
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "test_device"
+            assert call.kwargs["device_id"] is not None
 
 
 # -- Tests: State publishing ---------------------------------------------------

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from unittest.mock import MagicMock, patch
 
@@ -127,6 +128,11 @@ class TestMockSmartLightInit:
             )
         # Verify runtime default value - kills brightness=101 mutation
         assert light.brightness == 100
+
+    def test_brightness_default_parameter_is_exactly_100(self) -> None:
+        """MockSmartLight.__init__ default brightness must be exactly 100, not 101."""
+        sig = inspect.signature(MockSmartLight.__init__)
+        assert sig.parameters["brightness"].default == 100
 
 
 # -- Tests: get_state ----------------------------------------------------------
@@ -394,6 +400,10 @@ class TestMockSmartLightCommandLogging:
             assert call.args[0] is not None
             assert call.args[1] == "info"
             assert call.kwargs["command"] == "brightness"  # Kills command=None mutations
+            # Verify device_id kwarg - kills device_id=None, removal mutations
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["device_id"] is not None
 
     def test_color_temp_change_logs_command_sent(self, light: MockSmartLight) -> None:
         """Color temp change must log exact command='color_temp'."""
@@ -410,6 +420,10 @@ class TestMockSmartLightCommandLogging:
             assert call.args[0] is not None
             assert call.args[1] == "info"
             assert call.kwargs["command"] == "color_temp"  # Exact string
+            # Verify device_id kwarg - kills device_id=None, removal mutations
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["device_id"] is not None
 
     def test_invalid_color_temp_logs_failure(self, light: MockSmartLight) -> None:
         """Invalid color_temp value logs DEVICE_COMMAND_FAILED."""

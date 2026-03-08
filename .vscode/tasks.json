@@ -1,0 +1,35 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run SmartNest Tests",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/ -x --tb=short -q"
+		},
+		{
+			"label": "SmartNest: Run Tests",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/ -x --tb=short -q"
+		},
+		{
+			"label": "Run Tests",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/ -x --tb=short -q"
+		},
+		{
+			"label": "Run SmartNest Pytest",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/ -x --tb=short -q"
+		},
+		{
+			"label": "pytest-validate",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/ -x --tb=short"
+		},
+		{
+			"label": "pytest-validate",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/ -x --tb=short -q"
+		}
+	]
+}
