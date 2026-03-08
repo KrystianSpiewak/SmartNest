@@ -30,6 +30,30 @@
 			"label": "pytest-validate",
 			"type": "shell",
 			"command": ".venv\\Scripts\\python.exe -m pytest tests/ -x --tb=short -q"
+		},
+		{
+			"label": "SmartNest: Test App Only",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/unit/tui/test_app.py -x --tb=short -q",
+			"isBackground": false
+		},
+		{
+			"label": "SmartNest: Test TUI App",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/unit/tui/test_app.py -x --tb=short -q",
+			"isBackground": false
+		},
+		{
+			"label": "SmartNest: Run TUI Tests",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/unit/tui/test_app.py -x --tb=short -q",
+			"isBackground": false
+		},
+		{
+			"label": "SmartNest: pytest tui app",
+			"type": "shell",
+			"command": ".venv\\Scripts\\python.exe -m pytest tests/unit/tui/test_app.py --tb=short -q",
+			"isBackground": false
 		}
 	]
 }

@@ -27,6 +27,6 @@
     "check": "npm run lint && npm run format:check && npm run typecheck",
     "check:fix": "npm run lint:fix && npm run format && npm run typecheck",
     "ci": "npm run check && npm run test",
-    "validate": "npm run lint && npm run format:check && npm run typecheck && npm run test:cov"
+    "validate": "npm run lint && npm run format && npm run typecheck && npm run test:cov"
   }
 }

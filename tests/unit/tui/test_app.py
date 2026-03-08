@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import sys
 from unittest.mock import MagicMock, patch
@@ -793,3 +794,372 @@ class TestMain:
         # Verify it still initializes (msvcrt should be None on non-Windows)
         tui = app_module.SmartNestTUI()
         assert isinstance(tui, app_module.SmartNestTUI)
+
+
+# ---------------------------------------------------------------------------
+# Targeted mutation-killing tests for __init__, run(), shutdown(), _fetch
+# ---------------------------------------------------------------------------
+
+
+class TestSmartNestTUIInitConsole:
+    """Tests for Console creation and SMARTNEST_TUI_FORCE_TERMINAL env var.
+
+    Kills __init__ mutants:
+      - force_terminal = None  (mutation 3)
+      - os.getenv default "1" → None or mangled  (mutations 5-10, 12)
+      - != "0" → == "0"  (mutation 11)
+      - env var name mangled  (mutations 8, 9)
+    """
+
+    def test_force_terminal_true_when_env_not_set(self) -> None:
+        """Console uses force_terminal=True when SMARTNEST_TUI_FORCE_TERMINAL is absent."""
+        env_without_var = {
+            k: v for k, v in os.environ.items() if k != "SMARTNEST_TUI_FORCE_TERMINAL"
+        }
+        with (
+            patch.dict("os.environ", env_without_var, clear=True),
+            patch("backend.tui.app.Console") as mock_console,
+        ):
+            SmartNestTUI()
+        mock_console.assert_called_once_with(force_terminal=True, force_interactive=True)
+
+    def test_force_terminal_false_when_env_is_zero(self) -> None:
+        """Console created without forcing when SMARTNEST_TUI_FORCE_TERMINAL=0."""
+        with (
+            patch.dict("os.environ", {"SMARTNEST_TUI_FORCE_TERMINAL": "0"}),
+            patch("backend.tui.app.Console") as mock_console,
+        ):
+            SmartNestTUI()
+        mock_console.assert_called_once_with()  # No force_terminal=True
+
+    def test_force_terminal_true_when_env_is_one(self) -> None:
+        """Console forced when SMARTNEST_TUI_FORCE_TERMINAL=1."""
+        with (
+            patch.dict("os.environ", {"SMARTNEST_TUI_FORCE_TERMINAL": "1"}),
+            patch("backend.tui.app.Console") as mock_console,
+        ):
+            SmartNestTUI()
+        mock_console.assert_called_once_with(force_terminal=True, force_interactive=True)
+
+    def test_force_terminal_true_for_non_zero_value(self) -> None:
+        """Console forced for any non-'0' env var value (e.g. 'yes')."""
+        with (
+            patch.dict("os.environ", {"SMARTNEST_TUI_FORCE_TERMINAL": "yes"}),
+            patch("backend.tui.app.Console") as mock_console,
+        ):
+            SmartNestTUI()
+        mock_console.assert_called_once_with(force_terminal=True, force_interactive=True)
+
+
+class TestSmartNestTUIInitHttpClient:
+    """Tests for httpx.Client creation parameters.
+
+    Kills __init__ mutants in the http_client construction block
+    (timeout=5.0, base_url assignment).
+    """
+
+    def test_http_client_timeout_is_5_seconds(self) -> None:
+        """httpx.Client must be created with timeout=5.0."""
+        with patch("backend.tui.app.httpx.Client") as mock_client:
+            SmartNestTUI()
+        call_kwargs = mock_client.call_args.kwargs
+        assert call_kwargs["timeout"] == 5.0
+
+    def test_http_client_base_url_set_to_default(self) -> None:
+        """httpx.Client base_url defaults to 'http://localhost:8000'."""
+        with patch("backend.tui.app.httpx.Client") as mock_client:
+            SmartNestTUI()
+        call_kwargs = mock_client.call_args.kwargs
+        assert call_kwargs["base_url"] == "http://localhost:8000"
+
+    def test_http_client_base_url_reflects_custom_api_url(self) -> None:
+        """httpx.Client base_url matches the api_base_url argument."""
+        custom_url = "http://api.example.com:9000"
+        with patch("backend.tui.app.httpx.Client") as mock_client:
+            SmartNestTUI(api_base_url=custom_url)
+        call_kwargs = mock_client.call_args.kwargs
+        assert call_kwargs["base_url"] == custom_url
+
+
+class TestSmartNestTUIInitMQTTClient:
+    """Tests for SmartNestMQTTClient creation parameters.
+
+    Kills __init__ mutants around enable_paho_logger and MQTTConfig defaults.
+    """
+
+    def test_mqtt_client_paho_logger_disabled(self) -> None:
+        """SmartNestMQTTClient must be created with enable_paho_logger=False."""
+        with patch("backend.tui.app.SmartNestMQTTClient") as mock_mqtt_class:
+            SmartNestTUI()
+        call_kwargs = mock_mqtt_class.call_args.kwargs
+        assert call_kwargs.get("enable_paho_logger") is False
+
+    def test_default_mqtt_config_uses_smartnest_tui_client_id(self) -> None:
+        """Default MQTTConfig must use client_id='smartnest_tui' exactly."""
+        # Create a real TUI so MQTTConfig is constructed normally — no mock
+        # needed; just verify the resulting client_id.
+        tui = SmartNestTUI()
+        assert tui.mqtt_config.client_id == "smartnest_tui"
+
+
+class TestSmartNestTUIRunLive:
+    """Tests for run() Rich Live context manager arguments and loop behavior.
+
+    Kills run() mutants 1-36 by verifying:
+      - Live() constructor keyword args (screen=True, auto_refresh=False, console)
+      - render_live() called with correct device_count and system_status
+      - live.update() called with refresh=False
+      - live.refresh() called each iteration
+      - time.sleep(0.25) — exactly 0.25, not 0.5 or anything else
+      - console.clear() called in the finally block
+    """
+
+    def _make_run_context(
+        self,
+        tui: SmartNestTUI,
+        device_count: int | None = None,
+    ) -> tuple[MagicMock, MagicMock, MagicMock]:
+        """Set up and run() using the Windows time.sleep path.
+
+        Returns (mock_live_class, mock_live_context, mock_time).
+        All three retain call history after the with block exits.
+        """
+        import backend.tui.app as app_module  # noqa: PLC0415
+
+        def fake_startup() -> None:
+            tui.is_running = True
+
+        mock_signal = MagicMock(spec=[])  # No .pause → AttributeError → Windows path
+        mock_time = MagicMock()
+
+        def exit_loop_after_one_sleep(_: float) -> None:
+            tui.is_running = False
+
+        mock_time.sleep = MagicMock(side_effect=exit_loop_after_one_sleep)
+
+        with (
+            patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(app_module, "signal", mock_signal),
+            patch.object(tui, "_fetch_device_count", return_value=device_count),
+            patch("backend.tui.app.Live") as mock_live_class,
+            patch.object(app_module, "time", mock_time),
+            patch.object(tui, "shutdown"),
+            patch.object(tui.console, "clear"),
+        ):
+            tui.run()
+
+        return mock_live_class, mock_live_class.return_value.__enter__.return_value, mock_time
+
+    def test_live_created_with_screen_true(self) -> None:
+        """Live() must use screen=True for full-screen rendering."""
+        tui = SmartNestTUI()
+        mock_live_class, _, _ = self._make_run_context(tui)
+        assert mock_live_class.call_args.kwargs["screen"] is True
+
+    def test_live_created_with_auto_refresh_false(self) -> None:
+        """Live() must use auto_refresh=False — app drives refresh manually."""
+        tui = SmartNestTUI()
+        mock_live_class, _, _ = self._make_run_context(tui)
+        assert mock_live_class.call_args.kwargs["auto_refresh"] is False
+
+    def test_live_created_with_tui_console(self) -> None:
+        """Live() must receive the TUI's own console instance."""
+        tui = SmartNestTUI()
+        mock_live_class, _, _ = self._make_run_context(tui)
+        assert mock_live_class.call_args.kwargs["console"] is tui.console
+
+    def test_render_live_called_with_device_count(self) -> None:
+        """render_live() receives the device_count returned by _fetch_device_count."""
+        tui = SmartNestTUI()
+        with patch.object(tui.dashboard, "render_live") as mock_render:
+            self._make_run_context(tui, device_count=7)
+        assert mock_render.call_count >= 1
+        for call in mock_render.call_args_list:
+            assert call.kwargs.get("device_count") == 7
+
+    def test_render_live_called_with_system_status(self) -> None:
+        """render_live() receives the current system_status dict."""
+        tui = SmartNestTUI()
+        tui.system_status = {"active": True}
+        with patch.object(tui.dashboard, "render_live") as mock_render:
+            self._make_run_context(tui)
+        assert mock_render.call_count >= 1
+        for call in mock_render.call_args_list:
+            assert call.kwargs.get("system_status") == {"active": True}
+
+    def test_live_update_called_with_refresh_false(self) -> None:
+        """live.update() must pass refresh=False to suppress mid-frame flicker."""
+        tui = SmartNestTUI()
+        _, mock_live, _ = self._make_run_context(tui)
+        mock_live.update.assert_called()
+        for call in mock_live.update.call_args_list:
+            assert call.kwargs.get("refresh") is False
+
+    def test_live_refresh_called_each_iteration(self) -> None:
+        """live.refresh() must be called to actually push the frame."""
+        tui = SmartNestTUI()
+        _, mock_live, _ = self._make_run_context(tui)
+        mock_live.refresh.assert_called()
+
+    def test_run_sleep_duration_is_exactly_250ms(self) -> None:
+        """time.sleep() must be called with 0.25 seconds (4 FPS), not any other value."""
+        import backend.tui.app as app_module  # noqa: PLC0415
+
+        tui = SmartNestTUI()
+
+        def fake_startup() -> None:
+            tui.is_running = True
+
+        sleep_durations: list[float] = []
+
+        def recording_sleep(duration: float) -> None:
+            sleep_durations.append(duration)
+            tui.is_running = False  # exit after first call
+
+        with (
+            patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(app_module, "signal", MagicMock(spec=[])),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
+            patch.object(
+                app_module,
+                "time",
+                MagicMock(sleep=MagicMock(side_effect=recording_sleep)),
+            ),
+            patch.object(tui, "shutdown"),
+            patch.object(tui.console, "clear"),
+        ):
+            tui.run()
+
+        assert sleep_durations == [0.25]
+
+    def test_run_console_clear_called_in_finally(self) -> None:
+        """console.clear() must be in the finally block so it always runs."""
+        import backend.tui.app as app_module  # noqa: PLC0415
+
+        tui = SmartNestTUI()
+
+        def fake_startup() -> None:
+            tui.is_running = True
+
+        with (
+            patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(app_module, "signal", MagicMock(spec=[])),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
+            patch.object(
+                app_module,
+                "time",
+                MagicMock(sleep=MagicMock(side_effect=lambda _: setattr(tui, "is_running", False))),
+            ),
+            patch.object(tui, "shutdown"),
+            patch.object(tui.console, "clear") as mock_clear,
+        ):
+            tui.run()
+
+        mock_clear.assert_called_once()
+
+
+class TestSmartNestTUIShutdownDetails:
+    """Precise shutdown() tests targeting exact argument values.
+
+    Kills shutdown() mutants:
+      - sys.exit(0) → sys.exit(1)  (mutation 19)
+      - rc=0 → rc=1 in TUI_MQTT_DISCONNECTED log  (mutation 13)
+    """
+
+    def test_shutdown_sys_exit_code_is_zero(self) -> None:
+        """shutdown() must call sys.exit(0), not sys.exit(1) or another value."""
+        tui = SmartNestTUI()
+        tui.is_running = True
+        with (
+            patch.object(tui.mqtt_client, "disconnect"),
+            patch("sys.exit") as mock_exit,
+        ):
+            tui.shutdown()
+        mock_exit.assert_called_once_with(0)
+
+    def test_shutdown_mqtt_disconnect_log_rc_is_zero(self) -> None:
+        """TUI_MQTT_DISCONNECTED log must include rc=0, not 1 or None."""
+        tui = SmartNestTUI()
+        tui.is_running = True
+        with (
+            patch.object(tui.mqtt_client, "disconnect"),
+            patch("backend.tui.app.log_with_code") as mock_log,
+            patch("sys.exit"),
+        ):
+            mock_log.reset_mock()
+            tui.shutdown()
+        disconnected_calls = [
+            c
+            for c in mock_log.call_args_list
+            if len(c.args) >= 3 and c.args[2] == MessageCode.TUI_MQTT_DISCONNECTED
+        ]
+        assert len(disconnected_calls) == 1
+        assert disconnected_calls[0].kwargs.get("rc") == 0
+
+
+class TestSmartNestTUIFetchDeviceCountEdgeCases:
+    """Edge case tests for _fetch_device_count().
+
+    Kills _fetch_device_count() mutants:
+      - count=0 should return 0, not None  (tests None-inversion mutation)
+      - JSON null count should return None  (tests the else branch)
+      - error log level must be 'warning'  (mutation 15/19 region)
+      - error kwarg must be a non-empty string  (mutation 22 region)
+    """
+
+    def test_fetch_device_count_zero_returns_zero(self) -> None:
+        """count=0 is a valid value and must not collapse to None."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"count": 0}
+        with patch.object(tui.http_client, "get", return_value=mock_response):
+            result = tui._fetch_device_count()
+        assert result == 0
+        assert result is not None
+
+    def test_fetch_device_count_null_count_returns_none(self) -> None:
+        """JSON count=null must return None without raising."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"count": None}
+        with patch.object(tui.http_client, "get", return_value=mock_response):
+            result = tui._fetch_device_count()
+        assert result is None
+
+    def test_fetch_device_count_error_logged_at_warning_level(self) -> None:
+        """API error must be logged at 'warning' level, not 'error' or 'debug'."""
+        tui = SmartNestTUI()
+        with (
+            patch.object(tui.http_client, "get", side_effect=httpx.ConnectError("refused")),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            tui._fetch_device_count()
+        api_error_calls = [
+            c
+            for c in mock_log.call_args_list
+            if len(c.args) >= 3 and c.args[2] == MessageCode.TUI_API_ERROR
+        ]
+        assert len(api_error_calls) == 1
+        assert api_error_calls[0].args[1] == "warning"
+
+    def test_fetch_device_count_error_kwarg_is_non_empty_string(self) -> None:
+        """Error log must include a non-empty error= kwarg with the exception message."""
+        tui = SmartNestTUI()
+        with (
+            patch.object(
+                tui.http_client, "get", side_effect=httpx.ConnectError("Connection refused")
+            ),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            tui._fetch_device_count()
+        api_error_calls = [
+            c
+            for c in mock_log.call_args_list
+            if len(c.args) >= 3 and c.args[2] == MessageCode.TUI_API_ERROR
+        ]
+        assert len(api_error_calls) == 1
+        error_kwarg = api_error_calls[0].kwargs.get("error")
+        assert isinstance(error_kwarg, str)
+        assert len(error_kwarg) > 0
