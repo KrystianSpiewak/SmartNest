@@ -95,6 +95,13 @@ class MessageCode(StrEnum):
     TUI_MQTT_MESSAGE_RECEIVED = "TUI_008"
     TUI_MQTT_MESSAGE_PARSE_ERROR = "TUI_009"
 
+    # -- Authentication / authorisation (backend/auth/*.py, backend/api/auth) --
+    AUTH_LOGIN_SUCCESS = "AUTH_001"
+    AUTH_LOGIN_FAILED = "AUTH_002"
+    AUTH_TOKEN_EXPIRED = "AUTH_003"
+    AUTH_TOKEN_INVALID = "AUTH_004"
+    AUTH_INSUFFICIENT_ROLE = "AUTH_005"
+
     # -- System / application lifecycle ----------------------------------------
     SYS_STARTUP = "SYS_001"
     SYS_SHUTDOWN = "SYS_002"
@@ -166,6 +173,14 @@ _CATALOG: dict[MessageCode, str] = {
     MessageCode.TUI_MQTT_DISCONNECTED: "TUI MQTT client disconnected (rc={rc})",
     MessageCode.TUI_MQTT_MESSAGE_RECEIVED: "Received MQTT message on topic {topic}",
     MessageCode.TUI_MQTT_MESSAGE_PARSE_ERROR: "Failed to parse MQTT message: {error}",
+    # Auth
+    MessageCode.AUTH_LOGIN_SUCCESS: "User '{username}' logged in successfully",
+    MessageCode.AUTH_LOGIN_FAILED: "Login failed for username '{username}'",
+    MessageCode.AUTH_TOKEN_EXPIRED: "JWT token expired for user '{username}'",
+    MessageCode.AUTH_TOKEN_INVALID: "Invalid JWT token: {error}",
+    MessageCode.AUTH_INSUFFICIENT_ROLE: (
+        "User '{username}' with role '{role}' denied access (required: {required})"
+    ),
     # System
     MessageCode.SYS_STARTUP: "SmartNest {version} starting",
     MessageCode.SYS_SHUTDOWN: "SmartNest shutting down: {reason}",

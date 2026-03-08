@@ -4,8 +4,13 @@ Provides REST API for user CRUD operations, including
 registration, listing, and deletion.
 """
 
-from fastapi import APIRouter, HTTPException, status
+from __future__ import annotations
 
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from backend.api.deps import get_current_user, require_role
 from backend.api.models.user import UserCreate, UserResponse
 from backend.database.repositories.user import UserRepository
 
@@ -13,9 +18,13 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get("", response_model=list[UserResponse])
-async def list_users() -> list[UserResponse]:
+async def list_users(
+    _current_user: Annotated[UserResponse, Depends(get_current_user)],
+) -> list[UserResponse]:
     """
     List all users in the system.
+
+    Requires authentication.
 
     Returns:
         List of all users (passwords excluded)
@@ -25,7 +34,10 @@ async def list_users() -> list[UserResponse]:
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(user: UserCreate) -> UserResponse:
+async def create_user(
+    user: UserCreate,
+    _admin: Annotated[UserResponse, Depends(require_role("admin"))],
+) -> UserResponse:
     """
     Create a new user.
 
@@ -57,7 +69,10 @@ async def create_user(user: UserCreate) -> UserResponse:
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: int) -> None:
+async def delete_user(
+    user_id: int,
+    _admin: Annotated[UserResponse, Depends(require_role("admin"))],
+) -> None:
     """
     Delete a user by ID.
 
@@ -76,7 +91,10 @@ async def delete_user(user_id: int) -> None:
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-async def get_user(user_id: int) -> UserResponse:
+async def get_user(
+    user_id: int,
+    _current_user: Annotated[UserResponse, Depends(get_current_user)],
+) -> UserResponse:
     """
     Get a user by ID.
 

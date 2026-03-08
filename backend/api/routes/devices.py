@@ -4,12 +4,16 @@ Provides REST API for CRUD operations on IoT devices, including
 registration, updates, status tracking, and deletion.
 """
 
+from __future__ import annotations
+
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from backend.api.deps import get_current_user, require_role
 from backend.api.models.device import DeviceCreate, DeviceResponse
+from backend.api.models.user import UserResponse
 from backend.database.repositories.device import DeviceRepository
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -38,6 +42,7 @@ class DeviceStatusUpdate(BaseModel):
 
 @router.get("", response_model=DeviceListResponse)
 async def list_devices(
+    _current_user: Annotated[UserResponse, Depends(get_current_user)],
     page: Annotated[int, Field(ge=1)] = 1,
     page_size: Annotated[int, Field(ge=1, le=100)] = 20,
 ) -> DeviceListResponse:
@@ -64,7 +69,9 @@ async def list_devices(
 
 
 @router.get("/count", response_model=DeviceCountResponse)
-async def get_device_count() -> DeviceCountResponse:
+async def get_device_count(
+    _current_user: Annotated[UserResponse, Depends(get_current_user)],
+) -> DeviceCountResponse:
     """
     Get total count of registered devices.
 
@@ -76,7 +83,10 @@ async def get_device_count() -> DeviceCountResponse:
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)
-async def get_device(device_id: str) -> DeviceResponse:
+async def get_device(
+    device_id: str,
+    _current_user: Annotated[UserResponse, Depends(get_current_user)],
+) -> DeviceResponse:
     """
     Get device by ID.
 
@@ -99,7 +109,10 @@ async def get_device(device_id: str) -> DeviceResponse:
 
 
 @router.post("", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
-async def create_device(device: DeviceCreate) -> DeviceResponse:
+async def create_device(
+    device: DeviceCreate,
+    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
+) -> DeviceResponse:
     """
     Register a new device.
 
@@ -125,7 +138,11 @@ async def create_device(device: DeviceCreate) -> DeviceResponse:
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
-async def update_device(device_id: str, device: DeviceCreate) -> DeviceResponse:
+async def update_device(
+    device_id: str,
+    device: DeviceCreate,
+    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
+) -> DeviceResponse:
     """
     Update an existing device.
 
@@ -149,7 +166,10 @@ async def update_device(device_id: str, device: DeviceCreate) -> DeviceResponse:
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_device(device_id: str) -> None:
+async def delete_device(
+    device_id: str,
+    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
+) -> None:
     """
     Delete a device.
 
@@ -171,6 +191,7 @@ async def delete_device(device_id: str) -> None:
 async def update_device_status(
     device_id: str,
     status_update: DeviceStatusUpdate,
+    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
 ) -> DeviceResponse:
     """
     Update device status (online/offline/error).

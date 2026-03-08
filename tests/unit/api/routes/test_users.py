@@ -11,6 +11,19 @@ from fastapi import HTTPException
 from backend.api.models.user import UserCreate, UserResponse
 from backend.api.routes.users import create_user, delete_user, get_user, list_users
 
+_NOW = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+_ADMIN_USER = UserResponse(
+    id=99,
+    username="admin",
+    email="admin@example.com",
+    role="admin",
+    is_active=True,
+    created_at=_NOW,
+    updated_at=_NOW,
+    last_login_at=None,
+)
+
 
 class TestListUsers:
     """Tests for list_users() endpoint handler."""
@@ -18,7 +31,6 @@ class TestListUsers:
     @pytest.mark.asyncio
     async def test_list_users_returns_all_users(self) -> None:
         """list_users() returns all users from repository."""
-        now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
         mock_users = [
             UserResponse(
                 id=1,
@@ -26,8 +38,8 @@ class TestListUsers:
                 email="user1@example.com",
                 role="user",
                 is_active=True,
-                created_at=now,
-                updated_at=now,
+                created_at=_NOW,
+                updated_at=_NOW,
                 last_login_at=None,
             ),
             UserResponse(
@@ -36,8 +48,8 @@ class TestListUsers:
                 email="user2@example.com",
                 role="admin",
                 is_active=True,
-                created_at=now,
-                updated_at=now,
+                created_at=_NOW,
+                updated_at=_NOW,
                 last_login_at=None,
             ),
         ]
@@ -47,7 +59,7 @@ class TestListUsers:
             new_callable=AsyncMock,
             return_value=mock_users,
         ):
-            result = await list_users()
+            result = await list_users(_current_user=_ADMIN_USER)
 
         assert result == mock_users
         assert len(result) == 2
@@ -65,15 +77,14 @@ class TestCreateUser:
             password="password123",
             role="user",
         )
-        now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
         mock_response = UserResponse(
             id=1,
             username="newuser",
             email="new@example.com",
             role="user",
             is_active=True,
-            created_at=now,
-            updated_at=now,
+            created_at=_NOW,
+            updated_at=_NOW,
             last_login_at=None,
         )
 
@@ -81,7 +92,7 @@ class TestCreateUser:
             "backend.api.routes.users.UserRepository.create",
             new=AsyncMock(return_value=mock_response),
         ):
-            result = await create_user(user_create)
+            result = await create_user(user_create, _admin=_ADMIN_USER)
 
         assert result == mock_response
 
@@ -102,7 +113,7 @@ class TestCreateUser:
             ),
             pytest.raises(HTTPException) as exc_info,
         ):
-            await create_user(user_create)
+            await create_user(user_create, _admin=_ADMIN_USER)
 
         assert exc_info.value.status_code == 400
         assert "already exists" in exc_info.value.detail.lower()
@@ -124,7 +135,7 @@ class TestCreateUser:
             ),
             pytest.raises(HTTPException) as exc_info,
         ):
-            await create_user(user_create)
+            await create_user(user_create, _admin=_ADMIN_USER)
 
         assert exc_info.value.status_code == 500
         assert "Failed to create user" in exc_info.value.detail
@@ -136,15 +147,14 @@ class TestGetUser:
     @pytest.mark.asyncio
     async def test_get_user_success(self) -> None:
         """get_user() returns user data when found."""
-        now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
         mock_user = UserResponse(
             id=42,
             username="existinguser",
             email="existing@example.com",
             role="user",
             is_active=True,
-            created_at=now,
-            updated_at=now,
+            created_at=_NOW,
+            updated_at=_NOW,
             last_login_at=None,
         )
 
@@ -152,7 +162,7 @@ class TestGetUser:
             "backend.api.routes.users.UserRepository.get_by_id",
             new=AsyncMock(return_value=mock_user),
         ):
-            result = await get_user(42)
+            result = await get_user(42, _current_user=_ADMIN_USER)
 
         assert result == mock_user
 
@@ -166,7 +176,7 @@ class TestGetUser:
             ),
             pytest.raises(HTTPException) as exc_info,
         ):
-            await get_user(99999)
+            await get_user(99999, _current_user=_ADMIN_USER)
 
         assert exc_info.value.status_code == 404
         assert "not found" in exc_info.value.detail.lower()
@@ -182,7 +192,7 @@ class TestDeleteUser:
             "backend.api.routes.users.UserRepository.delete",
             new=AsyncMock(return_value=True),
         ):
-            await delete_user(42)
+            await delete_user(42, _admin=_ADMIN_USER)
 
         # Should complete without exception
 
@@ -196,7 +206,7 @@ class TestDeleteUser:
             ),
             pytest.raises(HTTPException) as exc_info,
         ):
-            await delete_user(99999)
+            await delete_user(99999, _admin=_ADMIN_USER)
 
         assert exc_info.value.status_code == 404
         assert "not found" in exc_info.value.detail.lower()

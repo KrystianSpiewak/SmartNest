@@ -2,13 +2,45 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api.deps import get_current_user
+from backend.api.models.user import UserResponse
 from backend.app import app
 from backend.database.connection import get_connection, init_database
 
-client = TestClient(app)
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+_NOW = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+_ADMIN_USER = UserResponse(
+    id=99,
+    username="admin",
+    email="admin@example.com",
+    role="admin",
+    is_active=True,
+    created_at=_NOW,
+    updated_at=_NOW,
+    last_login_at=None,
+)
+
+
+async def _override_get_current_user() -> UserResponse:
+    """Return a fake admin user for integration tests."""
+    return _ADMIN_USER
+
+
+@pytest.fixture(scope="module")
+def client() -> Iterator[TestClient]:
+    """Create a test client with auth dependency overridden."""
+    app.dependency_overrides[get_current_user] = _override_get_current_user
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +55,7 @@ async def setup_database() -> None:
 class TestListUsers:
     """Tests for GET /api/users endpoint."""
 
-    async def test_list_users_returns_admin_by_default(self) -> None:
+    async def test_list_users_returns_admin_by_default(self, client: TestClient) -> None:
         """GET /api/users returns at least the admin user."""
         response = client.get("/api/users")
 
@@ -34,7 +66,7 @@ class TestListUsers:
         assert len(users) >= 1
         assert any(user["username"] == "admin" for user in users)
 
-    async def test_list_users_includes_new_user(self) -> None:
+    async def test_list_users_includes_new_user(self, client: TestClient) -> None:
         """GET /api/users includes newly created users."""
         # Create a test user
         create_response = client.post(
@@ -59,7 +91,7 @@ class TestListUsers:
 class TestCreateUser:
     """Tests for POST /api/users endpoint."""
 
-    async def test_create_user_success(self) -> None:
+    async def test_create_user_success(self, client: TestClient) -> None:
         """POST /api/users creates a new user and returns 201."""
         response = client.post(
             "/api/users",
@@ -82,7 +114,7 @@ class TestCreateUser:
         assert "id" in user
         assert "created_at" in user
 
-    async def test_create_user_duplicate_username(self) -> None:
+    async def test_create_user_duplicate_username(self, client: TestClient) -> None:
         """POST /api/users returns 400 for duplicate username."""
         # Create first user
         client.post(
@@ -109,7 +141,7 @@ class TestCreateUser:
         assert response.status_code == 400
         assert "already exists" in response.json()["detail"].lower()
 
-    async def test_create_user_invalid_password(self) -> None:
+    async def test_create_user_invalid_password(self, client: TestClient) -> None:
         """POST /api/users returns 422 for weak password."""
         response = client.post(
             "/api/users",
@@ -123,7 +155,7 @@ class TestCreateUser:
 
         assert response.status_code == 422
 
-    async def test_create_user_invalid_role(self) -> None:
+    async def test_create_user_invalid_role(self, client: TestClient) -> None:
         """POST /api/users returns 422 for invalid role."""
         response = client.post(
             "/api/users",
@@ -141,7 +173,7 @@ class TestCreateUser:
 class TestGetUser:
     """Tests for GET /api/users/{user_id} endpoint."""
 
-    async def test_get_user_success(self) -> None:
+    async def test_get_user_success(self, client: TestClient) -> None:
         """GET /api/users/{id} returns user data."""
         # Create a user first
         create_response = client.post(
@@ -163,7 +195,7 @@ class TestGetUser:
         assert user["username"] == "getme"
         assert user["id"] == user_id
 
-    async def test_get_user_not_found(self) -> None:
+    async def test_get_user_not_found(self, client: TestClient) -> None:
         """GET /api/users/{id} returns 404 for nonexistent user."""
         response = client.get("/api/users/99999")
 
@@ -174,7 +206,7 @@ class TestGetUser:
 class TestDeleteUser:
     """Tests for DELETE /api/users/{user_id} endpoint."""
 
-    async def test_delete_user_success(self) -> None:
+    async def test_delete_user_success(self, client: TestClient) -> None:
         """DELETE /api/users/{id} removes user and returns 204."""
         # Create a user first
         create_response = client.post(
@@ -197,7 +229,7 @@ class TestDeleteUser:
         get_response = client.get(f"/api/users/{user_id}")
         assert get_response.status_code == 404
 
-    async def test_delete_user_not_found(self) -> None:
+    async def test_delete_user_not_found(self, client: TestClient) -> None:
         """DELETE /api/users/{id} returns 404 for nonexistent user."""
         response = client.delete("/api/users/99999")
 

@@ -4,17 +4,42 @@ Tests the complete request/response cycle for device CRUD operations
 using FastAPI TestClient.
 """
 
+from collections.abc import Iterator
+from datetime import UTC, datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api.deps import get_current_user
+from backend.api.models.user import UserResponse
 from backend.app import app
 from backend.database.connection import get_connection, init_database
 
+_NOW = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+_ADMIN_USER = UserResponse(
+    id=99,
+    username="admin",
+    email="admin@example.com",
+    role="admin",
+    is_active=True,
+    created_at=_NOW,
+    updated_at=_NOW,
+    last_login_at=None,
+)
+
+
+async def _override_get_current_user() -> UserResponse:
+    """Return a fake admin user for integration tests."""
+    return _ADMIN_USER
+
 
 @pytest.fixture(scope="module")
-def client() -> TestClient:
-    """Create a test client for the FastAPI app."""
-    return TestClient(app)
+def client() -> Iterator[TestClient]:
+    """Create a test client with auth dependency overridden."""
+    app.dependency_overrides[get_current_user] = _override_get_current_user
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)

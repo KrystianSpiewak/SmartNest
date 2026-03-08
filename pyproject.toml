@@ -42,6 +42,12 @@ ignore = [
 "tests/**" = ["PLR2004", "S106", "S105", "ARG002"]
 "scripts/**" = ["T20"]
 "backend/config.py" = ["S105"]
+"backend/api/models/auth.py" = ["S105"]
+"backend/logging/catalog.py" = ["S105"]
+"backend/api/deps.py" = ["TC001"]  # UserResponse needed at runtime for FastAPI dependency resolution
+"backend/api/routes/auth.py" = ["TC001"]  # UserResponse needed at runtime for FastAPI OpenAPI schema
+"backend/api/routes/devices.py" = ["TC001"]  # UserResponse needed at runtime for Depends type annotation
+"backend/api/routes/users.py" = ["TC001"]  # UserResponse needed at runtime for response_model + Depends
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
