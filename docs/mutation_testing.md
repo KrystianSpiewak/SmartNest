@@ -1,6 +1,6 @@
 # Mutation Testing
 
-SmartNest uses [mutmut](https://github.com/boxed/mutmut) for mutation testing to verify test quality beyond code coverage.
+SmartNest uses [mutmut 3.5](https://github.com/boxed/mutmut) for mutation testing to verify test quality beyond code coverage.
 
 ## Configuration
 
@@ -9,23 +9,40 @@ Mutation testing is configured in `setup.cfg`:
 ```ini
 [mutmut]
 paths_to_mutate=backend
-tests_dir=tests/unit
-runner=bash -c "source $HOME/smartnest-venv/bin/activate && pytest -x --tb=no -q"
+pytest_add_cli_args_test_selection=tests/unit
+
+# do_not_mutate uses fnmatch patterns against relative file paths.
+do_not_mutate =
+    backend/tui/screens/*.py
+    backend/api/*.py
 ```
+
+**Notes:**
+- `backend/tui/screens/*.py` — excluded: ~2800 cosmetic Rich rendering mutants (style strings, colors, border styles); no business logic
+- `backend/api/*.py` — excluded: only covered by integration tests which can't run inside mutmut (FastAPI lifespan + closed stdout)
+- mutmut 3.5 requires `fork()` support → **WSL required on Windows** (same as 2.x)
+- 3.5 stores run state in `mutants/` directory (not `.mutmut-cache`); supports incremental re-runs
 
 ## Running Mutation Tests
 
-**WSL (Linux) Only:** Mutation testing must run in WSL due to path and shell compatibility.
+**WSL (Linux) Only:** Mutation testing must run in WSL due to `fork()` system call requirement.
 
 ```bash
-# Full pipeline (recommended)
+# Full pipeline — fresh start (clears mutants/ cache, recommended first run)
+./mutmut.sh fresh
+
+# Full pipeline — resume from last run (fast, only re-tests changed functions)
 ./mutmut.sh all
 
 # Individual steps
 ./mutmut.sh sync      # Sync project to WSL
-./mutmut.sh run       # Run mutation testing
+./mutmut.sh clean     # Clear mutants/ cache for fresh start
+./mutmut.sh run       # Run mutation testing (resumes from cache)
 ./mutmut.sh results   # View summary
 ./mutmut.sh report    # Generate detailed report
+
+# Interactive TUI browser (in WSL after a run)
+cd ~/smartnest-project && mutmut browse
 ```
 
 ## Understanding Results

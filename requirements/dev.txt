@@ -18,4 +18,4 @@ mypy>=1.19.0
 
 # Mutation Testing
 # Windows: mutmut requires WSL2 due to Unix process management (fork, setproctitle)
-mutmut>=3.4.0
+mutmut>=3.5.0

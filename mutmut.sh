@@ -1,6 +1,7 @@
 #!/bin/bash
 # SmartNest Mutation Testing Workflow
 # Run from WSL: ./mutmut.sh [sync|run|results|html|report|all]
+# Requires mutmut 3.5+ (WSL still required on Windows due to fork() dependency)
 
 set -e
 
@@ -42,9 +43,15 @@ sync_project() {
         --exclude '.git' \
         --exclude 'mutmut-report' \
         --exclude 'htmlcov' \
-        --exclude '.mutmut-cache' \
         --exclude 'mutants'
     info "Sync complete."
+}
+
+# Clear mutmut state for a fully fresh run (mutmut 3.5 stores state in mutants/)
+clean_mutants() {
+    info "Clearing mutmut cache (mutants/)..."
+    rm -rf "$WSL_PROJECT/mutants"
+    info "Cache cleared. Next run will start from scratch."
 }
 
 run_mutmut() {
@@ -64,6 +71,7 @@ show_results() {
     echo ""
     warn "To list surviving mutants: ./mutmut.sh list"
     warn "To view mutant details: ./mutmut.sh show <full-mutant-id>"
+    warn "Interactive TUI: cd ~/smartnest-project && mutmut browse"
 }
 
 list_mutants() {
@@ -77,18 +85,6 @@ list_mutants() {
     echo ""
     warn "Use the FULL mutant ID with: ./mutmut.sh show <full-id>"
     warn "Example: ./mutmut.sh show backend.mqtt.client.xǁSmartNestMQTTClientǁ__init____mutmut_11"
-}
-
-analyze_mutants() {
-    check_venv
-    cd "$WSL_PROJECT"
-    source "$VENV/bin/activate"
-    
-    if [ ! -f "scripts/analyze_mutants.py" ]; then
-        error "Analyzer script not found. Make sure scripts/analyze_mutants.py exists."
-    fi
-    
-    python3 scripts/analyze_mutants.py
 }
 
 generate_report() {
@@ -242,6 +238,17 @@ run_all() {
     sync_report
     info "Complete! Summary: reports/mutation_report.txt"
     info "For diffs run: ./mutmut.sh detailed-report"
+    info "Interactive browser: cd ~/smartnest-project && mutmut browse"
+}
+
+run_fresh() {
+    sync_project
+    clean_mutants
+    run_mutmut
+    show_results
+    generate_report
+    sync_report
+    info "Fresh run complete! Summary: reports/mutation_report.txt"
 }
 
 # Main script
@@ -257,9 +264,6 @@ case "${1:-all}" in
         ;;
     list)
         list_mutants
-        ;;
-    analyze)
-        analyze_mutants
         ;;
     report)
         generate_report
@@ -279,25 +283,32 @@ case "${1:-all}" in
     detailed-report)
         show_detailed_report
         ;;
+    clean)
+        clean_mutants
+        ;;
+    fresh)
+        run_fresh
+        ;;
     all)
         run_all
         ;;
     *)
-        echo "Usage: $0 [sync|run|results|list|analyze|report|sync-report|show|apply|show-survivors|detailed-report|all]"
+        echo "Usage: $0 [sync|run|results|list|report|sync-report|show|apply|show-survivors|detailed-report|clean|fresh|all]"
         echo ""
         echo "Commands:"
         echo "  sync              - Sync project from Windows to WSL"
-        echo "  run               - Run mutation testing"
+        echo "  run               - Run mutation testing (resumes from last run)"
         echo "  results           - Show mutation testing summary"
         echo "  list              - List all surviving mutants with numbers"
-        echo "  analyze           - Categorize mutants by priority"
         echo "  report            - Generate summary text report"
         echo "  sync-report       - Copy report back to Windows"
         echo "  show <full-id>    - Show diff for specific mutant"
         echo "  apply <full-id>   - Apply mutant to see actual code changes"
         echo "  show-survivors [n] - Show diffs for first n survivors (default 10)"
         echo "  detailed-report   - Generate report with ALL mutant diffs"
-        echo "  all               - Run full pipeline (default)"
+        echo "  clean             - Clear mutants/ cache for fresh start"
+        echo "  fresh             - Clean cache then run full pipeline"
+        echo "  all               - Run full pipeline, resume from cache (default)"
         echo ""
         echo "Workflow:"
         echo "  1. ./mutmut.sh all                    # Run tests + generate report"
