@@ -3,15 +3,20 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import paho.mqtt.client as mqtt
 import pytest
 import structlog
 
+import backend.devices.base as _base_device_mod
 from backend.devices.base import BaseDevice
 from backend.logging.catalog import MessageCode
 from backend.mqtt.config import MQTTConfig
@@ -217,6 +222,13 @@ class TestBaseDeviceInit:
 class TestBaseDeviceStart:
     """Tests for BaseDevice.start() lifecycle."""
 
+    @pytest.fixture(autouse=True)
+    def _restore_base_device_module(self) -> Iterator[None]:
+        """Prevent importlib.reload from leaking BaseDevice identity."""
+        original = _base_device_mod.BaseDevice
+        yield
+        _base_device_mod.BaseDevice = original  # type: ignore[misc]
+
     def test_start_connects_to_broker(
         self, device: _ConcreteDevice, mock_paho_client: MagicMock
     ) -> None:
@@ -345,11 +357,24 @@ class TestBaseDeviceStart:
             assert call.args[1] == "info"
             assert call.kwargs["device_id"] == "test_device"  # Exact value
 
-    def test_start_default_timeout_exact_value(self) -> None:
+    def test_start_default_timeout_exact_value(
+        self,
+        device: _ConcreteDevice,
+    ) -> None:
         """start() default timeout must be exactly 10.0."""
-        sig = inspect.signature(BaseDevice.start)
+        importlib.reload(_base_device_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_base_device_mod.BaseDevice.start)
         # Verify exact default value - kills timeout=11.0, timeout=9.0 mutations
         assert sig.parameters["timeout"].default == 10.0
+        # Also call start() so mutmut maps this test to start()
+        with patch.object(device._client, "connect", return_value=True):
+            device.start()
+
+    def test_start_default_timeout_forwarded_to_connect(self, device: _ConcreteDevice) -> None:
+        """start() without timeout must forward timeout=10.0 to client.connect()."""
+        with patch.object(device._client, "connect", return_value=True) as mock_connect:
+            device.start()  # No timeout parameter — uses default
+            mock_connect.assert_called_once_with(timeout=10.0)
 
     def test_start_calls_start_operation_with_exact_params(
         self, device: _ConcreteDevice, mock_paho_client: MagicMock
@@ -396,6 +421,13 @@ class TestBaseDeviceStart:
 
 class TestBaseDeviceStop:
     """Tests for BaseDevice.stop() lifecycle."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_base_device_module(self) -> Iterator[None]:
+        """Prevent importlib.reload from leaking BaseDevice identity."""
+        original = _base_device_mod.BaseDevice
+        yield
+        _base_device_mod.BaseDevice = original  # type: ignore[misc]
 
     def test_stop_disconnects_client(
         self, device: _ConcreteDevice, mock_paho_client: MagicMock
@@ -478,6 +510,20 @@ class TestBaseDeviceStop:
             assert call.kwargs["reason"] == "shutdown"
             assert call.kwargs["reason"] is not None
 
+    def test_stop_default_reason_signature(
+        self,
+        device: _ConcreteDevice,
+        mock_paho_client: MagicMock,
+    ) -> None:
+        """stop() default reason parameter must be exactly 'shutdown'."""
+        importlib.reload(_base_device_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_base_device_mod.BaseDevice.stop)
+        assert sig.parameters["reason"].default == "shutdown"
+        # Also call stop() so mutmut maps this test to stop()
+        device.client.set_connected_for_test(True)
+        device.start()
+        device.stop()
+
 
 # -- Tests: Discovery ---------------------------------------------------------
 
@@ -551,6 +597,19 @@ class TestBaseDeviceDiscovery:
                 return
 
         pytest.fail("Discovery publish not found")
+
+    def test_discovery_passes_explicit_qos_to_client(self, device: _ConcreteDevice) -> None:
+        """_publish_discovery() must explicitly pass qos=1 to client.publish().
+
+        Mocks at SmartNestMQTTClient.publish level (not paho) to detect
+        when qos=1 kwarg is removed — even though publish() defaults to 1.
+        """
+        with patch.object(device._client, "publish", return_value=True) as mock_publish:
+            device._publish_discovery()
+            mock_publish.assert_called_once()
+            call = mock_publish.call_args
+            # qos must be explicitly passed as keyword arg
+            assert call.kwargs.get("qos") == 1
 
     def test_discovery_log_has_exact_device_id(
         self, device: _ConcreteDevice, mock_paho_client: MagicMock

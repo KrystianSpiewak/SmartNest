@@ -60,6 +60,11 @@ class TestTUIMain:
         self, mock_tui_main: MagicMock, mock_configure_logging: MagicMock
     ) -> None:
         """main() silences Paho MQTT loggers to prevent terminal interference."""
+        # Reset logger levels first to avoid test pollution from earlier main() calls
+        logging.getLogger("paho").setLevel(logging.NOTSET)
+        logging.getLogger("paho.mqtt").setLevel(logging.NOTSET)
+        logging.getLogger("paho.mqtt.client").setLevel(logging.NOTSET)
+
         backend.tui.__main__.main()
 
         # Verify Paho loggers are set to CRITICAL

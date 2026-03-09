@@ -397,6 +397,13 @@ class TestDiscoveryConsumerRegistration:
             # Verify error is str(exc), not the exception object itself
             assert isinstance(call.kwargs["error"], str)
             assert len(call.kwargs["error"]) > 0  # Non-empty string
+            # Verify error is not "None" — kills error=str(None) mutation
+            assert call.kwargs["error"] != "None"
+            # Verify error contains validation details
+            assert (
+                "validation" in call.kwargs["error"].lower()
+                or "field" in call.kwargs["error"].lower()
+            )
 
     def test_valid_registration_logs_success(self, consumer: DiscoveryConsumer) -> None:
         """Device registration must log with exact logger and parameters."""
@@ -472,3 +479,29 @@ class TestDiscoveryConsumerRegistration:
             # Verify device_id fallback is "unknown", not None
             assert call.kwargs["device_id"] == "unknown"  # Kills device_id=None mutation
             assert call.kwargs["device_id"] is not None
+
+
+class TestDiscoveryConsumerRegisterForTest:
+    """Tests for register_device_for_test() public API."""
+
+    def test_register_device_for_test_adds_device(self, consumer: DiscoveryConsumer) -> None:
+        """register_device_for_test() delegates to _register_device and adds device."""
+        consumer.register_device_for_test(_valid_payload("test_device"))
+        assert consumer.device_count == 1
+        device = consumer.get_device("test_device")
+        assert device is not None
+        assert device.device_id == "test_device"
+
+    def test_register_device_for_test_invalid_payload_logs_failure(
+        self, consumer: DiscoveryConsumer
+    ) -> None:
+        """register_device_for_test() with invalid payload logs failure."""
+        with patch("backend.mqtt.discovery.log_with_code") as mock_log:
+            consumer.register_device_for_test({"device_id": "x"})
+            failed_calls = [
+                c
+                for c in mock_log.call_args_list
+                if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_REGISTRATION_FAILED
+            ]
+            assert len(failed_calls) == 1
+        assert consumer.device_count == 0

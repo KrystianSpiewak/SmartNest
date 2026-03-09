@@ -3,13 +3,19 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import paho.mqtt.client as mqtt
 import pytest
 
+import backend.devices.mock_light as _mock_light_mod
 from backend.devices.mock_light import MockSmartLight
 from backend.logging.catalog import MessageCode
 from backend.mqtt.config import MQTTConfig
@@ -47,6 +53,13 @@ def _make_message(payload: dict[str, object]) -> MagicMock:
 
 class TestMockSmartLightInit:
     """Tests for MockSmartLight constructor."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_mock_light_module(self) -> Iterator[None]:
+        """Prevent importlib.reload from leaking MockSmartLight identity."""
+        original = _mock_light_mod.MockSmartLight
+        yield
+        _mock_light_mod.MockSmartLight = original  # type: ignore[misc]
 
     def test_default_state(self, light: MockSmartLight) -> None:
         """Light initializes with power off, full brightness, neutral color."""
@@ -129,10 +142,51 @@ class TestMockSmartLightInit:
         # Verify runtime default value - kills brightness=101 mutation
         assert light.brightness == 100
 
-    def test_brightness_default_parameter_is_exactly_100(self) -> None:
+    def test_brightness_default_parameter_is_exactly_100(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
         """MockSmartLight.__init__ default brightness must be exactly 100, not 101."""
-        sig = inspect.signature(MockSmartLight.__init__)
+        importlib.reload(_mock_light_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mock_light_mod.MockSmartLight.__init__)
         assert sig.parameters["brightness"].default == 100
+        # Also instantiate via reloaded module so mutmut maps this test to __init__
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+            light = _mock_light_mod.MockSmartLight(
+                device_id="sig_test",
+                name="Sig",
+                config=mqtt_config,
+            )
+        assert light.brightness == 100
+
+    def test_power_default_parameter_is_false(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
+        """MockSmartLight.__init__ default power must be exactly False."""
+        importlib.reload(_mock_light_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mock_light_mod.MockSmartLight.__init__)
+        assert sig.parameters["power"].default is False
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+            light = _mock_light_mod.MockSmartLight(
+                device_id="sig_test",
+                name="Sig",
+                config=mqtt_config,
+            )
+        assert light.power is False
+
+    def test_color_temp_default_parameter_is_4000(
+        self, mqtt_config: MQTTConfig, mock_paho_client: MagicMock
+    ) -> None:
+        """MockSmartLight.__init__ default color_temp must be exactly 4000."""
+        importlib.reload(_mock_light_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mock_light_mod.MockSmartLight.__init__)
+        assert sig.parameters["color_temp"].default == 4000
+        with patch("backend.mqtt.client.mqtt.Client", return_value=mock_paho_client):
+            light = _mock_light_mod.MockSmartLight(
+                device_id="sig_test",
+                name="Sig",
+                config=mqtt_config,
+            )
+        assert light.color_temp == 4000
 
 
 # -- Tests: get_state ----------------------------------------------------------
@@ -438,7 +492,7 @@ class TestMockSmartLightCommandLogging:
             assert len(failed_calls) == 1
 
     def test_state_updated_logged(self, light: MockSmartLight) -> None:
-        """State change logs DEVICE_STATE_UPDATED."""
+        """State change logs DEVICE_STATE_UPDATED with exact device_id."""
         msg = _make_message({"power": True})
         with patch("backend.devices.mock_light.log_with_code") as mock_log:
             light._handle_command(MagicMock(), None, msg)
@@ -448,6 +502,11 @@ class TestMockSmartLightCommandLogging:
                 if len(c.args) >= 3 and c.args[2] == MessageCode.DEVICE_STATE_UPDATED
             ]
             assert len(updated_calls) == 1
+            call = updated_calls[0]
+            # Verify device_id kwarg - kills device_id=None and removal mutations
+            assert "device_id" in call.kwargs
+            assert call.kwargs["device_id"] == "light_01"
+            assert call.kwargs["device_id"] is not None
 
 
 # -- Tests: _apply_command return value ---------------------------------------

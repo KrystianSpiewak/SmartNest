@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 import signal
 import sys
@@ -84,6 +85,11 @@ class TestSmartNestTUIInit:
         """TUI accepts custom API base URL."""
         tui = SmartNestTUI(api_base_url="http://example.com:9000")
         assert tui.api_base_url == "http://example.com:9000"
+
+    def test_api_base_url_default_signature(self) -> None:
+        """api_base_url default must be exactly 'http://localhost:8000'."""
+        sig = inspect.signature(SmartNestTUI.__init__)
+        assert sig.parameters["api_base_url"].default == "http://localhost:8000"
 
     def test_creates_mqtt_client(self) -> None:
         """TUI creates MQTT client with default config."""
@@ -307,8 +313,14 @@ class TestSmartNestTUIFetchDeviceCount:
             count = tui._fetch_device_count()
 
         assert count is None
-        # Should log error
-        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+        # Should log error with proper error string
+        error_calls = [c for c in mock_log.call_args_list if c.args[2] == MessageCode.TUI_API_ERROR]
+        assert len(error_calls) == 1
+        call = error_calls[0]
+        assert "error" in call.kwargs
+        assert call.kwargs["error"] is not None
+        assert isinstance(call.kwargs["error"], str)
+        assert call.kwargs["error"] != "None"  # kills error=str(None)
 
     def test_fetch_device_count_connection_error(self) -> None:
         """_fetch_device_count() returns None on connection error."""
@@ -323,8 +335,15 @@ class TestSmartNestTUIFetchDeviceCount:
             count = tui._fetch_device_count()
 
         assert count is None
-        # Should log error
-        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+        # Should log error with proper error string
+        error_calls = [c for c in mock_log.call_args_list if c.args[2] == MessageCode.TUI_API_ERROR]
+        assert len(error_calls) == 1
+        call = error_calls[0]
+        assert "error" in call.kwargs
+        assert call.kwargs["error"] is not None
+        assert isinstance(call.kwargs["error"], str)
+        assert call.kwargs["error"] != "None"  # kills error=str(None)
+        assert "Connection refused" in call.kwargs["error"]
 
     def test_fetch_device_count_timeout(self) -> None:
         """_fetch_device_count() returns None on timeout."""
@@ -337,8 +356,14 @@ class TestSmartNestTUIFetchDeviceCount:
             count = tui._fetch_device_count()
 
         assert count is None
-        # Should log error
-        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+        # Should log error with proper error string
+        error_calls = [c for c in mock_log.call_args_list if c.args[2] == MessageCode.TUI_API_ERROR]
+        assert len(error_calls) == 1
+        call = error_calls[0]
+        assert "error" in call.kwargs
+        assert call.kwargs["error"] is not None
+        assert isinstance(call.kwargs["error"], str)
+        assert call.kwargs["error"] != "None"  # kills error=str(None)
         tui = SmartNestTUI()
         tui.is_running = True
         with patch("sys.exit"):
@@ -390,9 +415,14 @@ class TestSmartNestTUIFetchDeviceCount:
             tui.shutdown()
             # Should print shutdown message
             assert mock_print.call_count >= 1
-            # Should contain "Shutting down"
-            printed_text = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
-            assert "Shutting down" in printed_text
+            # Verify exact message — kills "XX...XX" string mutations
+            shutdown_prints = [
+                call for call in mock_print.call_args_list if "Shutting down" in str(call.args[0])
+            ]
+            assert len(shutdown_prints) == 1
+            assert shutdown_prints[0].args[0] == (
+                "\n[bold yellow]Shutting down SmartNest TUI...[/bold yellow]"
+            )
 
 
 class TestSmartNestTUIMQTTCallbacks:
@@ -487,6 +517,7 @@ class TestSmartNestTUIMQTTCallbacks:
             assert call.kwargs["error"] is not None
             assert isinstance(call.kwargs["error"], str)
             assert len(call.kwargs["error"]) > 0
+            assert call.kwargs["error"] != "None"  # kills error=str(None) mutation
             # Verify topic kwarg - kills topic=None and removal mutations
             assert "topic" in call.kwargs
             assert call.kwargs["topic"] == "smartnest/system/status"
@@ -1000,6 +1031,31 @@ class TestSmartNestTUIRunLive:
         tui = SmartNestTUI()
         _, mock_live, _ = self._make_run_context(tui)
         mock_live.refresh.assert_called()
+
+    def test_live_constructor_receives_render_live_result(self) -> None:
+        """Live() must receive render_live() return value as first positional arg."""
+        tui = SmartNestTUI()
+        with patch.object(tui.dashboard, "render_live") as mock_render:
+            mock_live_class, _, _ = self._make_run_context(tui)
+        assert len(mock_live_class.call_args.args) >= 1
+        assert mock_live_class.call_args.args[0] is mock_render.return_value
+
+    def test_live_update_receives_render_live_result(self) -> None:
+        """live.update() must receive render_live() return value as first positional arg."""
+        tui = SmartNestTUI()
+        with patch.object(tui.dashboard, "render_live") as mock_render:
+            _, mock_live, _ = self._make_run_context(tui)
+        mock_live.update.assert_called()
+        for call in mock_live.update.call_args_list:
+            assert len(call.args) >= 1
+            assert call.args[0] is mock_render.return_value
+
+    def test_render_live_called_for_both_init_and_update(self) -> None:
+        """render_live() must be called for Live() init and each loop update (2 total)."""
+        tui = SmartNestTUI()
+        with patch.object(tui.dashboard, "render_live") as mock_render:
+            self._make_run_context(tui)
+        assert mock_render.call_count == 2
 
     def test_run_sleep_duration_is_exactly_250ms(self) -> None:
         """time.sleep() must be called with 0.25 seconds (4 FPS), not any other value."""

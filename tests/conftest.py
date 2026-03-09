@@ -7,10 +7,12 @@ Provides shared test fixtures to avoid duplication across test modules.
 from __future__ import annotations
 
 import contextlib
+import io
 from unittest.mock import MagicMock
 
 import paho.mqtt.client as mqtt
 import pytest
+import structlog
 
 from backend.logging.config import configure_logging
 from backend.mqtt.config import MQTTConfig
@@ -21,6 +23,13 @@ with contextlib.suppress(OSError, ValueError):
     # Configure once at import time so every test module gets consistent logging.
     # Use console renderer for human-readable test output.
     configure_logging(level="DEBUG", renderer="console")
+
+# Redirect structlog output to a memory buffer so tests survive subprocess
+# environments (e.g., mutmut) where stderr may be closed at runtime.
+structlog.configure(
+    logger_factory=structlog.PrintLoggerFactory(file=io.StringIO()),
+    cache_logger_on_first_use=False,
+)
 
 
 # ============================================================================

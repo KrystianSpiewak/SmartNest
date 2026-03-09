@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import importlib
+import inspect
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import paho.mqtt.client as mqtt
 import pytest
@@ -11,6 +17,7 @@ from paho.mqtt.client import ConnectFlags, DisconnectFlags
 from paho.mqtt.enums import CallbackAPIVersion
 from paho.mqtt.reasoncodes import ReasonCode
 
+import backend.mqtt.client as _mqtt_client_mod
 from backend.logging.catalog import MessageCode
 from backend.mqtt.client import SmartNestMQTTClient, logger
 from backend.mqtt.config import MQTTConfig
@@ -25,6 +32,13 @@ def client(mqtt_config: MQTTConfig, mock_paho_client: MagicMock) -> SmartNestMQT
 
 class TestClientInit:
     """Tests for SmartNestMQTTClient constructor."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_mqtt_module(self) -> Iterator[None]:
+        """Prevent importlib.reload from leaking SmartNestMQTTClient identity."""
+        original = _mqtt_client_mod.SmartNestMQTTClient
+        yield
+        _mqtt_client_mod.SmartNestMQTTClient = original  # type: ignore[misc]
 
     def test_creates_paho_client_with_v2_api(self, mqtt_config: MQTTConfig) -> None:
         with patch("backend.mqtt.client.mqtt.Client") as mock_cls:
@@ -101,6 +115,47 @@ class TestClientInit:
         assert LWT_EVENT_TYPE == "client_offline"
         assert LWT_EVENT_KEY == "event"
         assert LWT_CLIENT_ID_KEY == "client_id"
+
+    def test_enable_paho_logger_default_is_true(self) -> None:
+        """__init__ default enable_paho_logger must be exactly True."""
+        importlib.reload(_mqtt_client_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mqtt_client_mod.SmartNestMQTTClient.__init__)
+        assert sig.parameters["enable_paho_logger"].default is True
+
+    def test_publish_default_qos_is_1(self, client: SmartNestMQTTClient) -> None:
+        """publish() default qos must be exactly 1."""
+        importlib.reload(_mqtt_client_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mqtt_client_mod.SmartNestMQTTClient.publish)
+        assert sig.parameters["qos"].default == 1
+        # Also call publish so mutmut maps this test to publish()
+        client.set_connected_for_test()
+        client.publish("test/topic", {"key": "value"})
+
+    def test_publish_default_retain_is_false(self, client: SmartNestMQTTClient) -> None:
+        """publish() default retain must be exactly False."""
+        importlib.reload(_mqtt_client_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mqtt_client_mod.SmartNestMQTTClient.publish)
+        assert sig.parameters["retain"].default is False
+        client.set_connected_for_test()
+        client.publish("test/topic", {"key": "value"})
+
+    def test_subscribe_default_qos_is_1(self, client: SmartNestMQTTClient) -> None:
+        """subscribe() default qos must be exactly 1."""
+        importlib.reload(_mqtt_client_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mqtt_client_mod.SmartNestMQTTClient.subscribe)
+        assert sig.parameters["qos"].default == 1
+        # Also call subscribe so mutmut maps this test to subscribe()
+        client.set_connected_for_test()
+        client.subscribe("test/topic")
+
+    def test_set_connected_for_test_default_is_true(self, client: SmartNestMQTTClient) -> None:
+        """set_connected_for_test() default connected must be exactly True."""
+        importlib.reload(_mqtt_client_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_mqtt_client_mod.SmartNestMQTTClient.set_connected_for_test)
+        assert sig.parameters["connected"].default is True
+        # Also call set_connected_for_test so mutmut maps this test
+        client.set_connected_for_test()
+        assert client.is_connected is True
 
 
 class TestClientProperties:

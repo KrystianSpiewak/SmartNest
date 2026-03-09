@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import json
 import logging
@@ -14,6 +15,7 @@ import pytest
 import structlog
 from structlog.contextvars import clear_contextvars
 
+import backend.logging.config as _logging_config_mod
 from backend.logging.catalog import MessageCode, format_message
 from backend.logging.config import configure_logging, get_logger, reset_logging
 
@@ -305,11 +307,26 @@ class TestLoggingConfig:
             # Backend namespace gets the requested level (INFO by default)
             mock_backend_logger.setLevel.assert_called_once_with(logging.INFO)
 
+    @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_logging_default_level_exact_string(self) -> None:
         """Default level parameter must be exact string 'INFO', not variations."""
-        sig = inspect.signature(configure_logging)
+        importlib.reload(_logging_config_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_logging_config_mod.configure_logging)
         # Verify exact default value - kills level="info", level="XXINFOXX" mutations
         assert sig.parameters["level"].default == "INFO"
+        # Also call configure_logging so mutmut maps this test
+        reset_logging()
+        configure_logging()
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_logging_default_renderer_exact_string(self) -> None:
+        """Default renderer parameter must be exact string 'console', not variations."""
+        importlib.reload(_logging_config_mod)  # Re-execute def line for coverage attribution
+        sig = inspect.signature(_logging_config_mod.configure_logging)
+        assert sig.parameters["renderer"].default == "console"
+        # Also call configure_logging so mutmut maps this test
+        reset_logging()
+        configure_logging()
 
     @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_logging_default_renderer_is_console(self) -> None:
@@ -350,12 +367,39 @@ class TestLoggingConfig:
         assert "BoundLogger" in str(wrapper_class) or "Filtering" in str(wrapper_class)
 
     @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_passes_wrapper_class_kwarg(self) -> None:
+        """structlog.configure must receive wrapper_class keyword argument."""
+        reset_logging()
+        with patch("backend.logging.config.structlog.configure") as mock_cfg:
+            configure_logging()
+            mock_cfg.assert_called_once()
+            assert "wrapper_class" in mock_cfg.call_args.kwargs
+            assert mock_cfg.call_args.kwargs["wrapper_class"] is not None
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_configure_passes_context_class_kwarg(self) -> None:
+        """structlog.configure must receive context_class=dict explicitly."""
+        reset_logging()
+        with patch("backend.logging.config.structlog.configure") as mock_cfg:
+            configure_logging()
+            mock_cfg.assert_called_once()
+            assert "context_class" in mock_cfg.call_args.kwargs
+            assert mock_cfg.call_args.kwargs["context_class"] is dict
+
+    @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_context_class_is_dict(self) -> None:
         """Context class must be dict for JSON serialization."""
         reset_logging()
         configure_logging()
         config = structlog.get_config()
         assert config["context_class"] is dict  # Exact type, kills None mutation
+
+    @pytest.mark.usefixtures("_reset_structlog")
+    def test_invalid_level_falls_back_to_info(self) -> None:
+        """Invalid log level must fall back to logging.INFO via getattr."""
+        reset_logging()
+        configure_logging(level="NONEXISTENT_LEVEL")
+        assert logging.getLogger("backend").level == logging.INFO
 
     @pytest.mark.usefixtures("_reset_structlog")
     def test_configure_logger_factory_uses_stderr(self) -> None:

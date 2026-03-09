@@ -111,6 +111,20 @@ class TestCreateAccessToken:
         header = pyjwt.get_unverified_header(token)
         assert header["alg"] == "HS256"
 
+    def test_algorithm_kwarg_is_forwarded(self) -> None:
+        """Removing algorithm= kwarg changes the header when non-default algo used."""
+        settings = AppSettings(
+            jwt_secret="test-secret-key-for-unit-tests-hs384-needs-48-bytes!!",
+            jwt_algorithm="HS384",
+            jwt_expire_minutes=15,
+            _env_file=None,  # type: ignore[call-arg]
+        )
+        with patch("backend.auth.jwt.get_settings", return_value=settings):
+            token = create_access_token(user_id=1, username="admin", role="admin")
+
+        header = pyjwt.get_unverified_header(token)
+        assert header["alg"] == "HS384"
+
 
 class TestDecodeAccessToken:
     """Tests for decode_access_token()."""
