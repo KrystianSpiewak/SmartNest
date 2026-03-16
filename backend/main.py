@@ -16,7 +16,7 @@ def main() -> None:
         "backend.app:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
+        reload=False,
         log_level="info",
     )
 

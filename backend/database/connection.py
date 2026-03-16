@@ -2,7 +2,7 @@
 
 This module provides async database connection management using aiosqlite.
 The database is initialized with the schema on first connection and provides
-connection pooling for concurrent access.
+connection management for concurrent access.
 
 Usage:
     # Initialize database (call once during app startup)

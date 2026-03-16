@@ -7,13 +7,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    import httpx
     from rich.console import Console
 
 
@@ -71,7 +71,7 @@ class DeviceDetailScreen:
             state_response = self.http_client.get(f"/api/devices/{self.device_id}/state")
             state_response.raise_for_status()
             self.device_state = state_response.json()
-        except Exception:
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException):
             self.device = None
             self.device_state = None
             return False
@@ -97,7 +97,7 @@ class DeviceDetailScreen:
                 json={"command": command, "parameters": parameters},
             )
             response.raise_for_status()
-        except Exception:
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException):
             return False
         else:
             return True
@@ -336,12 +336,12 @@ class DeviceDetailScreen:
             Rich Text with menu options
         """
         menu = Text()
-        menu.append("[F1]", style="bold blue")
+        menu.append("[1]", style="bold blue")
         menu.append(" Dashboard  ")
-        menu.append("[F2]", style="bold blue")
-        menu.append(" Settings  ")
-        menu.append("[F3]", style="bold blue")
+        menu.append("[2]", style="bold blue")
         menu.append(" Devices  ")
+        menu.append("[3]", style="bold blue")
+        menu.append(" Settings  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 

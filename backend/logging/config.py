@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import TextIO
 
 import structlog
 
@@ -85,6 +86,7 @@ def configure_logging(
     *,
     level: str = "INFO",
     renderer: str = "console",
+    stream: TextIO | None = None,
 ) -> None:
     """Configure ``structlog`` for the SmartNest application.
 
@@ -105,7 +107,7 @@ def configure_logging(
     # (e.g., aiosqlite internal operations, paho.mqtt verbose logs)
     logging.basicConfig(
         format="%(message)s",
-        stream=sys.stderr,
+        stream=stream or sys.stderr,
         level=logging.WARNING,  # Root logger stays quiet
         force=True,
     )
@@ -119,7 +121,7 @@ def configure_logging(
         processors=shared_processors,
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
+        logger_factory=structlog.PrintLoggerFactory(file=stream or sys.stderr),
         cache_logger_on_first_use=True,
     )
 

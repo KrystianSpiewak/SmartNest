@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import backend.tui.__main__
 
@@ -37,7 +37,9 @@ class TestTUIMain:
         backend.tui.__main__.main()
 
         # Verify logging was configured
-        mock_configure_logging.assert_called_once_with(level="CRITICAL", renderer="console")
+        mock_configure_logging.assert_called_once_with(
+            level="CRITICAL", renderer="console", stream=ANY
+        )
         # Verify TUI was launched
         mock_tui_main.assert_called_once()
 
@@ -51,7 +53,9 @@ class TestTUIMain:
         backend.tui.__main__.main()
 
         # Verify logging was configured with custom level
-        mock_configure_logging.assert_called_once_with(level="DEBUG", renderer="console")
+        mock_configure_logging.assert_called_once_with(
+            level="DEBUG", renderer="console", stream=ANY
+        )
         mock_tui_main.assert_called_once()
 
     @patch("backend.tui.__main__.configure_logging")

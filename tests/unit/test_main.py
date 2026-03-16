@@ -41,7 +41,7 @@ class TestMain:
                 "backend.app:app",
                 host="127.0.0.1",
                 port=9000,
-                reload=True,
+                reload=False,
                 log_level="info",
             )
 
@@ -62,17 +62,17 @@ class TestMain:
             assert call_kwargs["host"] == "127.0.0.1"
             assert call_kwargs["port"] == 8000
 
-    def test_main_enables_reload(self) -> None:
-        """main() enables auto-reload for development."""
+    def test_main_disables_reload_by_default(self) -> None:
+        """main() disables auto-reload by default to avoid duplicate workers."""
         with (
             patch("backend.main.get_settings"),
             patch("backend.main.uvicorn.run") as mock_run,
         ):
             main()
 
-            # Should have reload=True
+            # Should have reload=False
             call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["reload"] is True
+            assert call_kwargs["reload"] is False
 
     def test_main_sets_log_level_info(self) -> None:
         """main() sets log level to info."""

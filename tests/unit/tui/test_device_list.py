@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import httpx
@@ -94,6 +95,32 @@ class TestFetchDevices:
         assert success is False
         assert device_list_screen.devices == []
 
+    def test_fetch_devices_uses_cached_result_when_throttled(self) -> None:
+        """fetch_devices() returns cached success and skips HTTP call inside throttle window."""
+        console = MagicMock()
+        http_client = MagicMock()
+        screen = DeviceListScreen(console, http_client)
+        screen._last_fetch_success = True
+        screen._last_fetch_at = time.monotonic()
+
+        result = screen.fetch_devices()
+
+        assert result is True
+        http_client.get.assert_not_called()
+
+    def test_fetch_devices_uses_cached_failure_when_throttled(self) -> None:
+        """fetch_devices() returns cached failure and skips HTTP call inside throttle window."""
+        console = MagicMock()
+        http_client = MagicMock()
+        screen = DeviceListScreen(console, http_client)
+        screen._last_fetch_success = False
+        screen._last_fetch_at = time.monotonic()
+
+        result = screen.fetch_devices()
+
+        assert result is False
+        http_client.get.assert_not_called()
+
 
 class TestFilterMethods:
     """Test filter and search functionality."""
@@ -141,6 +168,25 @@ class TestGetFilteredDevices:
         assert len(filtered) == 2
         assert all(d["device_type"] == "smart_light" for d in filtered)
 
+    def test_filter_by_lights_accepts_light_alias(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """Test light filter accepts API device_type='light'."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Living Room Light", "device_type": "light"},
+            {
+                "id": "sensor_01",
+                "friendly_name": "Temp Sensor",
+                "device_type": "temperature_sensor",
+            },
+        ]
+        device_list_screen.set_filter("lights")
+
+        filtered = device_list_screen.get_filtered_devices()
+
+        assert len(filtered) == 1
+        assert filtered[0]["device_type"] == "light"
+
     def test_filter_by_sensors(self, device_list_screen: DeviceListScreen) -> None:
         """Test filtering devices by sensors."""
         device_list_screen.devices = [
@@ -184,6 +230,25 @@ class TestGetFilteredDevices:
             "kitchen" in str(d["name"]).lower() or "kitchen" in str(d["location"]).lower()
             for d in filtered
         )
+
+    def test_filter_by_search_query_uses_api_field_names(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """Test search works with id/friendly_name API response fields."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Kitchen Light", "device_type": "light"},
+            {
+                "id": "sensor_01",
+                "friendly_name": "Bedroom Sensor",
+                "device_type": "temperature_sensor",
+            },
+        ]
+        device_list_screen.set_search("kitchen")
+
+        filtered = device_list_screen.get_filtered_devices()
+
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "light_01"
 
     def test_filter_combined(self, device_list_screen: DeviceListScreen) -> None:
         """Test combined type filter and search query."""

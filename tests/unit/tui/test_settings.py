@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import httpx
@@ -100,6 +101,32 @@ class TestFetchUsers:
 
         assert result is False
         assert screen.users == []
+
+    def test_fetch_users_uses_cached_result_when_throttled(self) -> None:
+        """fetch_users() returns cached success and skips HTTP call inside throttle window."""
+        console = MagicMock()
+        http_client = MagicMock()
+        screen = SettingsScreen(console, http_client)
+        screen._last_fetch_success = True
+        screen._last_fetch_at = time.monotonic()
+
+        result = screen.fetch_users()
+
+        assert result is True
+        http_client.get.assert_not_called()
+
+    def test_fetch_users_uses_cached_failure_when_throttled(self) -> None:
+        """fetch_users() returns cached failure and skips HTTP call inside throttle window."""
+        console = MagicMock()
+        http_client = MagicMock()
+        screen = SettingsScreen(console, http_client)
+        screen._last_fetch_success = False
+        screen._last_fetch_at = time.monotonic()
+
+        result = screen.fetch_users()
+
+        assert result is False
+        http_client.get.assert_not_called()
 
 
 class TestRender:
@@ -320,3 +347,244 @@ class TestRenderMenu:
 
         assert menu is not None
         assert isinstance(menu, Text)
+
+    class TestPromptAddUser:
+        """Tests for prompt_add_user() method."""
+
+        def test_prompt_add_user_success(self) -> None:
+            """prompt_add_user() creates user and returns True on success."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "newuser@example.com", "secret123", "user"]
+            mock_response = MagicMock()
+            http_client.post.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is True
+            http_client.post.assert_called_once_with(
+                "/api/users",
+                json={
+                    "username": "newuser",
+                    "email": "newuser@example.com",
+                    "password": "secret123",
+                    "role": "user",
+                },
+            )
+            mock_response.raise_for_status.assert_called_once()
+
+        def test_prompt_add_user_uses_hidden_password_input(self) -> None:
+            """prompt_add_user() requests password with hidden console input."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "newuser@example.com", "secret123", "user"]
+            mock_response = MagicMock()
+            http_client.post.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is True
+            assert any(call.kwargs.get("password") is True for call in console.input.call_args_list)
+
+        def test_prompt_add_user_empty_username_returns_false(self) -> None:
+            """prompt_add_user() returns False if username is empty."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = [""]
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is False
+            http_client.post.assert_not_called()
+
+        def test_prompt_add_user_empty_password_returns_false(self) -> None:
+            """prompt_add_user() returns False if password is empty."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "newuser@example.com", "", "user"]
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is False
+            http_client.post.assert_not_called()
+
+        def test_prompt_add_user_empty_role_defaults_to_user(self) -> None:
+            """prompt_add_user() uses 'user' role when role input is empty."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["admin2", "admin2@example.com", "adminpass1", ""]
+            mock_response = MagicMock()
+            http_client.post.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is True
+            call_json = http_client.post.call_args.kwargs["json"]
+            assert call_json["role"] == "user"
+
+        def test_prompt_add_user_empty_email_uses_default(self) -> None:
+            """prompt_add_user() defaults email to username@example.com when blank."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "", "secret123", "user"]
+            mock_response = MagicMock()
+            http_client.post.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is True
+            call_json = http_client.post.call_args.kwargs["json"]
+            assert call_json["email"] == "newuser@example.com"
+
+        def test_prompt_add_user_whitespace_email_returns_false(self) -> None:
+            """prompt_add_user() returns False when email input is only whitespace."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "   ", "secret123", "user"]
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is False
+            http_client.post.assert_not_called()
+
+        def test_prompt_add_user_http_error_returns_false(self) -> None:
+            """prompt_add_user() returns False on HTTP error from API."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "newuser@example.com", "secret123", "admin"]
+            mock_response = MagicMock()
+            mock_response.json.return_value = {"detail": "Password must contain at least one digit"}
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "422", request=MagicMock(), response=MagicMock()
+            )
+            http_client.post.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is False
+            console.print.assert_called()
+
+        def test_prompt_add_user_http_error_with_invalid_json_returns_false(self) -> None:
+            """prompt_add_user() handles non-JSON API error bodies gracefully."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "newuser@example.com", "secret123", "admin"]
+            mock_response = MagicMock()
+            mock_response.json.side_effect = ValueError("invalid json")
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "422", request=MagicMock(), response=MagicMock()
+            )
+            http_client.post.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is False
+
+        def test_prompt_add_user_connection_error_returns_false(self) -> None:
+            """prompt_add_user() returns False on connection error."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.side_effect = ["newuser", "newuser@example.com", "secret123", "user"]
+            http_client.post.side_effect = httpx.ConnectError("Connection refused")
+
+            screen = SettingsScreen(console, http_client)
+            result = screen.prompt_add_user()
+
+            assert result is False
+
+    class TestPromptDeleteUser:
+        """Tests for prompt_delete_user() method."""
+
+        def test_prompt_delete_user_success(self) -> None:
+            """prompt_delete_user() deletes user and returns True on success."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.return_value = "42"
+            mock_response = MagicMock()
+            http_client.delete.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            screen.users = [{"id": 42, "username": "testuser"}]
+            result = screen.prompt_delete_user()
+
+            assert result is True
+            http_client.delete.assert_called_once_with("/api/users/42")
+            mock_response.raise_for_status.assert_called_once()
+
+        def test_prompt_delete_user_no_users_returns_false(self) -> None:
+            """prompt_delete_user() returns False immediately when users list is empty."""
+            console = MagicMock()
+            http_client = MagicMock()
+
+            screen = SettingsScreen(console, http_client)
+            screen.users = []
+            result = screen.prompt_delete_user()
+
+            assert result is False
+            console.input.assert_not_called()
+            http_client.delete.assert_not_called()
+
+        def test_prompt_delete_user_empty_input_returns_false(self) -> None:
+            """prompt_delete_user() returns False when user ID input is empty."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.return_value = ""
+
+            screen = SettingsScreen(console, http_client)
+            screen.users = [{"id": 1, "username": "testuser"}]
+            result = screen.prompt_delete_user()
+
+            assert result is False
+            http_client.delete.assert_not_called()
+
+        def test_prompt_delete_user_invalid_id_returns_false(self) -> None:
+            """prompt_delete_user() returns False when user ID is not numeric."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.return_value = "not_a_number"
+
+            screen = SettingsScreen(console, http_client)
+            screen.users = [{"id": 1, "username": "testuser"}]
+            result = screen.prompt_delete_user()
+
+            assert result is False
+            http_client.delete.assert_not_called()
+
+        def test_prompt_delete_user_http_error_returns_false(self) -> None:
+            """prompt_delete_user() returns False on HTTP error from API."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.return_value = "5"
+            mock_response = MagicMock()
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "404", request=MagicMock(), response=MagicMock()
+            )
+            http_client.delete.return_value = mock_response
+
+            screen = SettingsScreen(console, http_client)
+            screen.users = [{"id": 5, "username": "someone"}]
+            result = screen.prompt_delete_user()
+
+            assert result is False
+
+        def test_prompt_delete_user_connection_error_returns_false(self) -> None:
+            """prompt_delete_user() returns False on connection error."""
+            console = MagicMock()
+            http_client = MagicMock()
+            console.input.return_value = "3"
+            http_client.delete.side_effect = httpx.ConnectError("Connection refused")
+
+            screen = SettingsScreen(console, http_client)
+            screen.users = [{"id": 3, "username": "someone"}]
+            result = screen.prompt_delete_user()
+
+            assert result is False

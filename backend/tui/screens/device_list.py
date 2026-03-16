@@ -5,15 +5,16 @@ Tabular device listing with filtering by type and search functionality.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    import httpx
     from rich.console import Console
 
 
@@ -46,6 +47,9 @@ class DeviceListScreen:
         self.devices: list[dict[str, Any]] = []
         self.filter_type = "all"
         self.search_query = ""
+        self._last_fetch_at = 0.0
+        self._last_fetch_success = False
+        self._fetch_interval_seconds = 2.0
 
     def fetch_devices(self) -> bool:
         """Fetch devices from API and cache locally.
@@ -53,15 +57,23 @@ class DeviceListScreen:
         Returns:
             True if successful, False on API error
         """
+        now = time.monotonic()
+        if now - self._last_fetch_at < self._fetch_interval_seconds:
+            return self._last_fetch_success
+
         try:
             response = self.http_client.get("/api/devices")
             response.raise_for_status()
             data = response.json()
             self.devices = data.get("devices", [])
-        except Exception:
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException, ValueError):
             self.devices = []
+            self._last_fetch_at = now
+            self._last_fetch_success = False
             return False
         else:
+            self._last_fetch_at = now
+            self._last_fetch_success = True
             return True
 
     def get_filtered_devices(self) -> list[dict[str, Any]]:
@@ -74,15 +86,11 @@ class DeviceListScreen:
 
         # Filter by type
         if self.filter_type == "lights":
-            filtered = [d for d in filtered if d.get("device_type") == "smart_light"]
+            filtered = [d for d in filtered if self._is_light(d)]
         elif self.filter_type == "sensors":
-            filtered = [
-                d
-                for d in filtered
-                if d.get("device_type") in ("temperature_sensor", "motion_sensor")
-            ]
+            filtered = [d for d in filtered if self._is_sensor(d)]
         elif self.filter_type == "switches":
-            filtered = [d for d in filtered if d.get("device_type") == "smart_switch"]
+            filtered = [d for d in filtered if self._is_switch(d)]
 
         # Filter by search query
         if self.search_query:
@@ -90,11 +98,33 @@ class DeviceListScreen:
             filtered = [
                 d
                 for d in filtered
-                if query_lower in str(d.get("name", "")).lower()
+                if query_lower in str(d.get("friendly_name") or d.get("name") or "").lower()
                 or query_lower in str(d.get("location", "")).lower()
+                or query_lower in str(d.get("id") or d.get("device_id") or "").lower()
             ]
 
         return filtered
+
+    def _normalized_device_type(self, device: dict[str, Any]) -> str:
+        """Return normalized device_type string for resilient filtering."""
+        return str(device.get("device_type", "")).strip().lower()
+
+    def _is_light(self, device: dict[str, Any]) -> bool:
+        """Return True when a device should be included in light filter."""
+        return self._normalized_device_type(device) in {"smart_light", "light"}
+
+    def _is_sensor(self, device: dict[str, Any]) -> bool:
+        """Return True when a device should be included in sensor filter."""
+        device_type = self._normalized_device_type(device)
+        return device_type in {
+            "temperature_sensor",
+            "motion_sensor",
+            "sensor",
+        } or device_type.endswith("_sensor")
+
+    def _is_switch(self, device: dict[str, Any]) -> bool:
+        """Return True when a device should be included in switch filter."""
+        return self._normalized_device_type(device) in {"smart_switch", "switch"}
 
     def set_filter(self, filter_type: str) -> None:
         """Set device type filter.
@@ -250,8 +280,8 @@ class DeviceListScreen:
             last_seen_display = str(last_seen)[11:19] if last_seen else "Never"  # HH:MM:SS
 
             table.add_row(
-                str(device.get("device_id", "")),
-                str(device.get("name", "")),
+                str(device.get("id") or device.get("device_id") or ""),
+                str(device.get("friendly_name") or device.get("name") or ""),
                 device_type_display,
                 status_text,
                 str(device.get("location", "")),
@@ -299,12 +329,12 @@ class DeviceListScreen:
             Rich Text with menu options
         """
         menu = Text()
-        menu.append("[F1]", style="bold blue")
+        menu.append("[1]", style="bold blue")
         menu.append(" Dashboard  ")
-        menu.append("[F2]", style="bold blue")
-        menu.append(" Settings  ")
-        menu.append("[F3]", style="bold blue")
+        menu.append("[2]", style="bold blue")
         menu.append(" Devices  ")
+        menu.append("[3]", style="bold blue")
+        menu.append(" Settings  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 
