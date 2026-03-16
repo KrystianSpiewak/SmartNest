@@ -274,5 +274,5 @@ class TestDashboardScreenMenu:
 
         output = string_io.getvalue()
         # Check for key letters (may be styled, so just check presence)
-        for option in ["Devices", "Sensors", "Reports", "Logs", "Settings", "Quit"]:
+        for option in ["Dashboard", "Devices", "Settings", "Quit"]:
             assert option in output

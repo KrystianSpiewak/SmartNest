@@ -15,7 +15,7 @@ from rich.console import Console
 from backend.logging.catalog import MessageCode
 from backend.mqtt.client import SmartNestMQTTClient
 from backend.mqtt.config import MQTTConfig
-from backend.tui.app import SmartNestTUI
+from backend.tui.app import ReauthHttpClient, SmartNestTUI
 from backend.tui.screens.dashboard import DashboardScreen
 from backend.tui.screens.device_detail import DeviceDetailScreen
 from backend.tui.screens.device_list import DeviceListScreen
@@ -122,6 +122,11 @@ class TestSmartNestTUIInit:
             # Check log level (2nd positional argument)
             assert call_args.args[1] == "debug"
 
+    def test_initializes_pending_action_none(self) -> None:
+        """TUI initializes _pending_action to None."""
+        tui = SmartNestTUI()
+        assert tui._pending_action is None
+
 
 class TestSmartNestTUIStartup:
     """Tests for TUI startup."""
@@ -129,7 +134,10 @@ class TestSmartNestTUIStartup:
     def test_startup_sets_running_flag(self) -> None:
         """startup() sets is_running to True."""
         tui = SmartNestTUI()
-        with patch.object(tui.mqtt_client, "connect"):
+        with (
+            patch.object(tui.mqtt_client, "connect"),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+        ):
             tui.startup()
         assert tui.is_running is True
 
@@ -228,6 +236,251 @@ class TestSmartNestTUIStartup:
             tui.startup()
             # Should pass device_count=7 to render()
             mock_render.assert_called_once_with(device_count=7)
+
+    def test_startup_stops_when_authentication_fails(self) -> None:
+        """startup() aborts before MQTT connect when authentication fails."""
+        tui = SmartNestTUI()
+        with (
+            patch.object(tui, "_authenticate_startup", return_value=False),
+            patch.object(tui.mqtt_client, "connect") as mock_connect,
+        ):
+            tui.startup()
+        assert tui.is_running is False
+        mock_connect.assert_not_called()
+
+
+class TestSmartNestTUIAuthentication:
+    """Tests for startup authentication workflow."""
+
+    def test_authenticate_startup_skips_under_pytest(self) -> None:
+        """_authenticate_startup() returns True in pytest environment."""
+        tui = SmartNestTUI()
+        with patch.dict("os.environ", {"PYTEST_CURRENT_TEST": "tests::fake"}):
+            assert tui._authenticate_startup() is True
+
+    def test_authenticate_startup_success_sets_bearer_header(self) -> None:
+        """_authenticate_startup() stores JWT token in Authorization header."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"access_token": "test-token"}
+
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(tui.console, "input", return_value="notarealadmin"),
+            patch("backend.tui.app.getpass.getpass", return_value="notarealpassword123"),
+            patch.object(tui.http_client, "post", return_value=mock_response),
+            patch.object(tui.console, "print"),
+        ):
+            assert tui._authenticate_startup() is True
+
+        assert tui.http_client.headers.get("Authorization") == "Bearer test-token"
+
+    def test_authenticate_startup_uses_default_username_when_blank(self) -> None:
+        """_authenticate_startup() falls back to env/default username on blank input."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"access_token": "test-token"}
+
+        with (
+            patch.dict("os.environ", {"SMARTNEST_ADMIN_USERNAME": "notarealadmin"}, clear=True),
+            patch.object(tui.console, "input", return_value=""),
+            patch("backend.tui.app.getpass.getpass", return_value="notarealpassword123"),
+            patch.object(tui.http_client, "post", return_value=mock_response) as mock_post,
+            patch.object(tui.console, "print"),
+        ):
+            assert tui._authenticate_startup() is True
+
+        assert mock_post.call_args.kwargs["json"]["username"] == "notarealadmin"
+
+    def test_authenticate_startup_fails_on_empty_password(self) -> None:
+        """_authenticate_startup() rejects empty password without API call."""
+        tui = SmartNestTUI()
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(tui.console, "input", return_value="notarealadmin"),
+            patch("backend.tui.app.getpass.getpass", return_value=""),
+            patch.object(tui.http_client, "post") as mock_post,
+            patch.object(tui.console, "print"),
+        ):
+            assert tui._authenticate_startup() is False
+        mock_post.assert_not_called()
+
+    def test_authenticate_startup_fails_on_http_error(self) -> None:
+        """_authenticate_startup() returns False when login endpoint rejects credentials."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401", request=MagicMock(), response=MagicMock()
+        )
+
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(tui.console, "input", return_value="notarealadmin"),
+            patch("backend.tui.app.getpass.getpass", return_value="wrong"),
+            patch.object(tui.http_client, "post", return_value=mock_response),
+            patch.object(tui.console, "print"),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            assert tui._authenticate_startup() is False
+
+        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+
+    def test_authenticate_startup_fails_when_token_missing(self) -> None:
+        """_authenticate_startup() returns False when access token is missing."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {}
+
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(tui.console, "input", return_value="notarealadmin"),
+            patch("backend.tui.app.getpass.getpass", return_value="notarealpassword123"),
+            patch.object(tui.http_client, "post", return_value=mock_response),
+            patch.object(tui.console, "print"),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            assert tui._authenticate_startup() is False
+
+        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+
+    def test_refresh_auth_token_success(self) -> None:
+        """_refresh_auth_token() re-authenticates and updates Authorization header."""
+        tui = SmartNestTUI()
+        tui._auth_username = "notarealadmin"
+        tui._auth_password = "notarealpassword123"
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"access_token": "new-token"}
+        mock_response.raise_for_status.return_value = None
+
+        with patch.object(tui.http_client, "post", return_value=mock_response):
+            assert tui._refresh_auth_token() is True
+
+        assert tui.http_client.headers.get("Authorization") == "Bearer new-token"
+
+    def test_refresh_auth_token_fails_without_cached_credentials(self) -> None:
+        """_refresh_auth_token() returns False when no cached credentials are available."""
+        tui = SmartNestTUI()
+        tui._auth_username = None
+        tui._auth_password = None
+
+        with patch.object(tui.http_client, "post") as mock_post:
+            assert tui._refresh_auth_token() is False
+            mock_post.assert_not_called()
+
+    def test_refresh_auth_token_fails_on_http_error(self) -> None:
+        """_refresh_auth_token() returns False when login retry fails."""
+        tui = SmartNestTUI()
+        tui._auth_username = "notarealadmin"
+        tui._auth_password = "notarealpassword123"
+
+        with patch.object(tui.http_client, "post", side_effect=httpx.HTTPError("401")):
+            assert tui._refresh_auth_token() is False
+
+    def test_refresh_auth_token_fails_when_access_token_missing(self) -> None:
+        """_refresh_auth_token() returns False when response has no access_token."""
+        tui = SmartNestTUI()
+        tui._auth_username = "notarealadmin"
+        tui._auth_password = "notarealpassword123"
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {}
+
+        with patch.object(tui.http_client, "post", return_value=mock_response):
+            assert tui._refresh_auth_token() is False
+
+
+class TestReauthHttpClient:
+    """Tests for HTTP auto-reauth retry behavior."""
+
+    def test_request_retries_once_after_successful_reauth(self) -> None:
+        """request() retries the original request once when reauth callback succeeds."""
+        client = ReauthHttpClient(base_url="http://localhost:8000", reauth_callback=lambda: True)
+
+        first_response = MagicMock(spec=httpx.Response)
+        first_response.status_code = 401
+        second_response = MagicMock(spec=httpx.Response)
+        second_response.status_code = 200
+
+        with patch.object(httpx.Client, "request", side_effect=[first_response, second_response]):
+            response = client.request("GET", "/api/devices")
+
+        assert response.status_code == 200
+
+    def test_request_returns_immediately_when_not_unauthorized(self) -> None:
+        """request() returns immediately when first response is not 401."""
+        callback = MagicMock(return_value=True)
+        client = ReauthHttpClient(base_url="http://localhost:8000", reauth_callback=callback)
+
+        response_200 = MagicMock(spec=httpx.Response)
+        response_200.status_code = 200
+
+        with patch.object(httpx.Client, "request", return_value=response_200) as mock_request:
+            response = client.request("GET", "/api/devices")
+
+        assert response.status_code == 200
+        callback.assert_not_called()
+        mock_request.assert_called_once()
+
+    def test_request_does_not_retry_auth_login_endpoint(self) -> None:
+        """request() does not recurse when 401 comes from login endpoint."""
+        callback = MagicMock(return_value=True)
+        client = ReauthHttpClient(base_url="http://localhost:8000", reauth_callback=callback)
+
+        response_401 = MagicMock(spec=httpx.Response)
+        response_401.status_code = 401
+
+        with patch.object(httpx.Client, "request", return_value=response_401) as mock_request:
+            response = client.request("POST", "/api/auth/login")
+
+        assert response.status_code == 401
+        callback.assert_not_called()
+        mock_request.assert_called_once()
+
+    def test_request_does_not_retry_while_refresh_in_progress(self) -> None:
+        """request() returns 401 response if refresh is already in progress."""
+        callback = MagicMock(return_value=True)
+        client = ReauthHttpClient(base_url="http://localhost:8000", reauth_callback=callback)
+        client._refresh_in_progress = True
+
+        response_401 = MagicMock(spec=httpx.Response)
+        response_401.status_code = 401
+
+        with patch.object(httpx.Client, "request", return_value=response_401) as mock_request:
+            response = client.request("GET", "/api/devices")
+
+        assert response.status_code == 401
+        callback.assert_not_called()
+        mock_request.assert_called_once()
+
+    def test_request_does_not_retry_when_callback_missing(self) -> None:
+        """request() returns 401 response when no reauth callback is configured."""
+        client = ReauthHttpClient(base_url="http://localhost:8000", reauth_callback=None)
+
+        response_401 = MagicMock(spec=httpx.Response)
+        response_401.status_code = 401
+
+        with patch.object(httpx.Client, "request", return_value=response_401) as mock_request:
+            response = client.request("GET", "/api/devices")
+
+        assert response.status_code == 401
+        mock_request.assert_called_once()
+
+    def test_request_returns_401_when_reauth_callback_fails(self) -> None:
+        """request() returns original 401 response when callback reports reauth failure."""
+        callback = MagicMock(return_value=False)
+        client = ReauthHttpClient(base_url="http://localhost:8000", reauth_callback=callback)
+
+        response_401 = MagicMock(spec=httpx.Response)
+        response_401.status_code = 401
+
+        with patch.object(httpx.Client, "request", return_value=response_401) as mock_request:
+            response = client.request("GET", "/api/devices")
+
+        assert response.status_code == 401
+        callback.assert_called_once()
+        mock_request.assert_called_once()
 
 
 class TestSmartNestTUIShutdown:
@@ -674,6 +927,23 @@ class TestSmartNestTUIRun:
                 pass
             mock_startup.assert_called_once()
 
+    def test_run_returns_immediately_when_startup_not_running(self) -> None:
+        """run() exits early when startup fails authentication and leaves app stopped."""
+        tui = SmartNestTUI()
+
+        with (
+            patch.object(tui, "startup", return_value=None),
+            patch.object(tui, "_start_input_reader") as mock_start_reader,
+            patch.object(tui, "_fetch_device_count") as mock_fetch,
+            patch.object(tui, "shutdown") as mock_shutdown,
+            patch.object(tui.console, "clear"),
+        ):
+            tui.run()
+
+        mock_start_reader.assert_not_called()
+        mock_fetch.assert_not_called()
+        mock_shutdown.assert_called_once()
+
     @pytest.mark.skipif(
         sys.platform != "win32",
         reason="Windows-specific Ctrl+C behavior (signal.pause missing)",
@@ -723,8 +993,8 @@ class TestSmartNestTUIRun:
             assert tui.is_running is False
             mock_exit.assert_called_once_with(0)
 
-    def test_run_uses_signal_pause_on_unix(self) -> None:
-        """run() uses signal.pause() on Unix systems."""
+    def test_run_uses_polling_loop_on_all_platforms(self) -> None:
+        """run() uses a uniform polling loop on all platforms; signal.pause() never called."""
         import backend.tui.app as app_module  # noqa: PLC0415
 
         tui = SmartNestTUI()
@@ -732,26 +1002,37 @@ class TestSmartNestTUIRun:
         def fake_startup() -> None:
             tui.is_running = True
 
-        # Mock signal to have pause method
+        # Mock signal WITH a pause attribute to verify it is never called
         mock_signal = MagicMock()
-        mock_signal.pause = MagicMock(side_effect=KeyboardInterrupt)
         mock_signal.SIGINT = signal.SIGINT
         mock_signal.SIGTERM = signal.SIGTERM
         mock_signal.signal = signal.signal
+
+        sleep_count = 0
+
+        def fake_sleep(_duration: float) -> None:
+            nonlocal sleep_count
+            sleep_count += 1
+            tui.is_running = False  # exit after first sleep
 
         with (
             patch.object(tui, "startup", side_effect=fake_startup),
             patch.object(app_module, "signal", mock_signal),
             patch.object(tui, "_fetch_device_count", return_value=None),
             patch("backend.tui.app.Live"),
+            patch.object(
+                app_module,
+                "time",
+                MagicMock(sleep=MagicMock(side_effect=fake_sleep)),
+            ),
             patch.object(tui, "shutdown"),
+            patch.object(tui.console, "clear"),
         ):
-            try:
-                tui.run()
-            except (KeyboardInterrupt, SystemExit):
-                pass
-            # signal.pause() should have been called
-            mock_signal.pause.assert_called_once()
+            tui.run()
+        # signal.pause() must NOT be called — uniform polling loop used on all platforms
+        mock_signal.pause.assert_not_called()
+        # time.sleep must be called (polling loop is active)
+        assert sleep_count >= 1
 
     def test_run_uses_time_sleep_on_windows(self) -> None:
         """run() uses time.sleep() loop when signal.pause() not available."""
@@ -789,6 +1070,218 @@ class TestSmartNestTUIRun:
             assert sleep_count >= 3
             # shutdown() should be called when loop exits
             mock_shutdown.assert_called_once()
+
+    def test_poll_input_key_reads_from_queue(self) -> None:
+        """_poll_input_key() returns queued character when msvcrt has no key."""
+        tui = SmartNestTUI()
+        tui._input_queue.put("2")
+        assert tui._poll_input_key() == "2"
+
+    def test_poll_input_key_ignores_newline(self) -> None:
+        """_poll_input_key() ignores CR/LF characters from stdin queue."""
+        tui = SmartNestTUI()
+        tui._input_queue.put("\n")
+        assert tui._poll_input_key() is None
+
+    def test_start_input_reader_skips_under_pytest(self) -> None:
+        """_start_input_reader() does not spawn thread in pytest environment."""
+        tui = SmartNestTUI()
+        with (
+            patch.dict("os.environ", {"PYTEST_CURRENT_TEST": "tests::fake"}),
+            patch.object(sys.stdin, "isatty", return_value=True),
+        ):
+            tui._start_input_reader()
+        assert tui._input_thread_started is False
+
+    def test_start_input_reader_returns_when_already_started(self) -> None:
+        """_start_input_reader() is a no-op when thread already started."""
+        tui = SmartNestTUI()
+        tui._input_thread_started = True
+        with patch.object(sys.stdin, "isatty", return_value=True):
+            tui._start_input_reader()
+        assert tui._input_thread_started is True
+
+    def test_start_input_reader_starts_background_thread(self) -> None:
+        """_start_input_reader() starts daemon thread when tty and not in pytest."""
+        tui = SmartNestTUI()
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(sys.stdin, "isatty", return_value=True),
+            patch("backend.tui.app.threading.Thread") as mock_thread,
+        ):
+            tui._start_input_reader()
+
+        assert tui._input_thread_started is True
+        mock_thread.assert_called_once_with(target=tui._stdin_reader_loop, daemon=True)
+        mock_thread.return_value.start.assert_called_once_with()
+
+    def test_stop_input_reader_closes_prompt_toolkit_input(self) -> None:
+        """_stop_input_reader() stops reader and closes prompt_toolkit input handle."""
+        tui = SmartNestTUI()
+        mock_pt_input = MagicMock()
+        tui._pt_input = mock_pt_input
+        tui._input_thread_started = True
+
+        tui._stop_input_reader()
+
+        mock_pt_input.close.assert_called_once_with()
+        assert tui._pt_input is None
+        assert tui._input_thread_started is False
+
+    def test_stop_input_reader_without_prompt_toolkit_handle(self) -> None:
+        """_stop_input_reader() is safe when no prompt_toolkit input exists."""
+        tui = SmartNestTUI()
+        tui._pt_input = None
+        tui._input_thread_started = True
+
+        tui._stop_input_reader()
+
+        assert tui._pt_input is None
+        assert tui._input_thread_started is False
+
+    def test_stdin_reader_loop_enqueues_char_and_exits_on_eof(self) -> None:
+        """_stdin_reader_loop() enqueues chars and stops when stdin returns EOF."""
+        tui = SmartNestTUI()
+        with patch.object(sys.stdin, "read", side_effect=["x", ""]):
+            tui._stdin_reader_loop()
+        assert tui._input_queue.get_nowait() == "x"
+
+    def test_stdin_reader_loop_exits_immediately_when_stop_is_set(self) -> None:
+        """_stdin_reader_loop() exits without reading stdin if stop event is pre-set."""
+        tui = SmartNestTUI()
+        tui._input_stop.set()
+        with patch.object(sys.stdin, "read") as mock_read:
+            tui._stdin_reader_loop()
+        mock_read.assert_not_called()
+
+    def test_stdin_reader_loop_reads_prompt_toolkit_keys(self) -> None:
+        """_stdin_reader_loop() enqueues single-char prompt_toolkit key data."""
+        tui = SmartNestTUI()
+        mock_pt_input = MagicMock()
+        tui._pt_input = mock_pt_input
+
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__.return_value = None
+        mock_ctx.__exit__.return_value = False
+        mock_pt_input.raw_mode.return_value = mock_ctx
+
+        key_single = MagicMock()
+        key_single.data = "x"
+        key_multi = MagicMock()
+        key_multi.data = "\x1bOP"
+
+        def fake_read_keys() -> list[MagicMock]:
+            tui._input_stop.set()
+            return [key_single, key_multi]
+
+        mock_pt_input.read_keys.side_effect = fake_read_keys
+
+        tui._stdin_reader_loop()
+
+        assert tui._input_queue.get_nowait() == "x"
+        assert tui._input_queue.empty()
+
+    def test_stdin_reader_loop_handles_prompt_toolkit_eof(self) -> None:
+        """_stdin_reader_loop() exits gracefully when prompt_toolkit raises EOFError."""
+        tui = SmartNestTUI()
+        mock_pt_input = MagicMock()
+        tui._pt_input = mock_pt_input
+
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__.return_value = None
+        mock_ctx.__exit__.return_value = False
+        mock_pt_input.raw_mode.return_value = mock_ctx
+        mock_pt_input.read_keys.side_effect = EOFError
+
+        tui._stdin_reader_loop()
+
+    def test_run_handles_key_from_queue_for_navigation(self) -> None:
+        """run() processes queued key input and updates current_screen."""
+        import backend.tui.app as app_module  # noqa: PLC0415
+
+        tui = SmartNestTUI()
+
+        def fake_startup() -> None:
+            tui.is_running = True
+            tui._input_queue.put("2")
+
+        def fake_sleep(_duration: float) -> None:
+            tui.is_running = False
+
+        with (
+            patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(tui, "_start_input_reader"),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
+            patch.object(app_module, "time", MagicMock(sleep=MagicMock(side_effect=fake_sleep))),
+            patch.object(tui, "shutdown"),
+            patch.object(tui.console, "clear"),
+        ):
+            tui.run()
+
+        assert tui.current_screen == "devices"
+
+    def test_handle_key_ctrl_c_stops_running(self) -> None:
+        """_handle_key() treats Ctrl+C byte as a quit signal in raw mode."""
+        tui = SmartNestTUI()
+        tui.is_running = True
+
+        tui._handle_key("\x03")
+
+        assert tui.is_running is False
+
+    def test_run_closes_prompt_toolkit_input_on_exit(self) -> None:
+        """run() closes prompt_toolkit input handle in finally block."""
+        import backend.tui.app as app_module  # noqa: PLC0415
+
+        tui = SmartNestTUI()
+        mock_pt_input = MagicMock()
+        tui._pt_input = mock_pt_input
+
+        def fake_startup() -> None:
+            tui.is_running = True
+
+        with (
+            patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(tui, "_start_input_reader"),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch("backend.tui.app.Live"),
+            patch("time.sleep", side_effect=KeyboardInterrupt),
+            patch.object(
+                app_module, "time", MagicMock(sleep=MagicMock(side_effect=KeyboardInterrupt))
+            ),
+            patch.object(tui, "shutdown"),
+            patch.object(tui.console, "clear"),
+        ):
+            tui.run()
+
+        mock_pt_input.close.assert_called_once_with()
+
+    def test_run_modal_action_stops_and_restarts_input_reader(self) -> None:
+        """run() pauses key reader during modal actions and restarts it afterward."""
+        tui = SmartNestTUI()
+
+        def fake_startup() -> None:
+            tui.is_running = True
+            tui._pending_action = "add_user"
+
+        with (
+            patch.object(tui, "startup", side_effect=fake_startup),
+            patch.object(tui, "_fetch_device_count", return_value=None),
+            patch.object(
+                tui,
+                "_execute_modal_action",
+                side_effect=lambda _: setattr(tui, "is_running", False),
+            ),
+            patch.object(tui, "_start_input_reader") as mock_start,
+            patch.object(tui, "_stop_input_reader") as mock_stop,
+            patch.object(tui, "shutdown"),
+            patch.object(tui.console, "clear"),
+        ):
+            tui.run()
+
+        assert mock_start.call_count == 1
+        assert mock_stop.call_count >= 2
 
 
 class TestMain:
@@ -842,8 +1335,8 @@ class TestSmartNestTUIInitConsole:
       - env var name mangled  (mutations 8, 9)
     """
 
-    def test_force_terminal_true_when_env_not_set(self) -> None:
-        """Console uses force_terminal=True when SMARTNEST_TUI_FORCE_TERMINAL is absent."""
+    def test_force_terminal_false_when_env_not_set(self) -> None:
+        """Console uses default mode when SMARTNEST_TUI_FORCE_TERMINAL is absent."""
         env_without_var = {
             k: v for k, v in os.environ.items() if k != "SMARTNEST_TUI_FORCE_TERMINAL"
         }
@@ -852,7 +1345,7 @@ class TestSmartNestTUIInitConsole:
             patch("backend.tui.app.Console") as mock_console,
         ):
             SmartNestTUI()
-        mock_console.assert_called_once_with(force_terminal=True, force_interactive=True)
+        mock_console.assert_called_once_with()
 
     def test_force_terminal_false_when_env_is_zero(self) -> None:
         """Console created without forcing when SMARTNEST_TUI_FORCE_TERMINAL=0."""
@@ -872,41 +1365,41 @@ class TestSmartNestTUIInitConsole:
             SmartNestTUI()
         mock_console.assert_called_once_with(force_terminal=True, force_interactive=True)
 
-    def test_force_terminal_true_for_non_zero_value(self) -> None:
-        """Console forced for any non-'0' env var value (e.g. 'yes')."""
+    def test_force_terminal_false_for_non_one_value(self) -> None:
+        """Console stays default for non-'1' env var value (e.g. 'yes')."""
         with (
             patch.dict("os.environ", {"SMARTNEST_TUI_FORCE_TERMINAL": "yes"}),
             patch("backend.tui.app.Console") as mock_console,
         ):
             SmartNestTUI()
-        mock_console.assert_called_once_with(force_terminal=True, force_interactive=True)
+        mock_console.assert_called_once_with()
 
 
 class TestSmartNestTUIInitHttpClient:
-    """Tests for httpx.Client creation parameters.
+    """Tests for HTTP client creation parameters.
 
     Kills __init__ mutants in the http_client construction block
     (timeout=5.0, base_url assignment).
     """
 
     def test_http_client_timeout_is_5_seconds(self) -> None:
-        """httpx.Client must be created with timeout=5.0."""
-        with patch("backend.tui.app.httpx.Client") as mock_client:
+        """ReauthHttpClient must be created with timeout=5.0."""
+        with patch("backend.tui.app.ReauthHttpClient") as mock_client:
             SmartNestTUI()
         call_kwargs = mock_client.call_args.kwargs
         assert call_kwargs["timeout"] == 5.0
 
     def test_http_client_base_url_set_to_default(self) -> None:
-        """httpx.Client base_url defaults to 'http://localhost:8000'."""
-        with patch("backend.tui.app.httpx.Client") as mock_client:
+        """ReauthHttpClient base_url defaults to 'http://localhost:8000'."""
+        with patch("backend.tui.app.ReauthHttpClient") as mock_client:
             SmartNestTUI()
         call_kwargs = mock_client.call_args.kwargs
         assert call_kwargs["base_url"] == "http://localhost:8000"
 
     def test_http_client_base_url_reflects_custom_api_url(self) -> None:
-        """httpx.Client base_url matches the api_base_url argument."""
+        """ReauthHttpClient base_url matches the api_base_url argument."""
         custom_url = "http://api.example.com:9000"
-        with patch("backend.tui.app.httpx.Client") as mock_client:
+        with patch("backend.tui.app.ReauthHttpClient") as mock_client:
             SmartNestTUI(api_base_url=custom_url)
         call_kwargs = mock_client.call_args.kwargs
         assert call_kwargs["base_url"] == custom_url
@@ -981,11 +1474,18 @@ class TestSmartNestTUIRunLive:
 
         return mock_live_class, mock_live_class.return_value.__enter__.return_value, mock_time
 
-    def test_live_created_with_screen_true(self) -> None:
-        """Live() must use screen=True for full-screen rendering."""
+    def test_live_created_with_screen_true_by_default(self) -> None:
+        """Live() must default to screen=True for full-screen TUI mode."""
         tui = SmartNestTUI()
         mock_live_class, _, _ = self._make_run_context(tui)
         assert mock_live_class.call_args.kwargs["screen"] is True
+
+    def test_live_created_with_screen_false_when_env_disabled(self) -> None:
+        """Live() disables alternate screen when SMARTNEST_TUI_ALT_SCREEN=0."""
+        with patch.dict("os.environ", {"SMARTNEST_TUI_ALT_SCREEN": "0"}):
+            tui = SmartNestTUI()
+        mock_live_class, _, _ = self._make_run_context(tui)
+        assert mock_live_class.call_args.kwargs["screen"] is False
 
     def test_live_created_with_auto_refresh_false(self) -> None:
         """Live() must use auto_refresh=False — app drives refresh manually."""
@@ -1219,3 +1719,272 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
         error_kwarg = api_error_calls[0].kwargs.get("error")
         assert isinstance(error_kwarg, str)
         assert len(error_kwarg) > 0
+
+    class TestSmartNestTUIRenderCurrentScreen:
+        """Tests for _render_current_screen() routing method."""
+
+        def test_renders_dashboard_when_current_screen_is_dashboard(self) -> None:
+            """_render_current_screen() delegates to dashboard.render_live for dashboard screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            with patch.object(tui.dashboard, "render_live") as mock_render:
+                result = tui._render_current_screen(device_count=5)
+            mock_render.assert_called_once_with(device_count=5, system_status=tui.system_status)
+            assert result is mock_render.return_value
+
+        def test_renders_device_list_when_current_screen_is_devices(self) -> None:
+            """_render_current_screen() delegates to device_list.render_live for devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+            with patch.object(tui.device_list, "render_live") as mock_render:
+                result = tui._render_current_screen(device_count=3)
+            mock_render.assert_called_once_with()
+            assert result is mock_render.return_value
+
+        def test_renders_device_detail_when_current_screen_is_device_detail(self) -> None:
+            """_render_current_screen() delegates to device_detail.render_live."""
+            tui = SmartNestTUI()
+            tui.current_screen = "device_detail"
+            with patch.object(tui.device_detail, "render_live") as mock_render:
+                result = tui._render_current_screen()
+            mock_render.assert_called_once_with()
+            assert result is mock_render.return_value
+
+        def test_renders_settings_when_current_screen_is_settings(self) -> None:
+            """_render_current_screen() delegates to settings.render_live for settings screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "settings"
+            with patch.object(tui.settings, "render_live") as mock_render:
+                result = tui._render_current_screen()
+            mock_render.assert_called_once_with()
+            assert result is mock_render.return_value
+
+        def test_falls_back_to_dashboard_for_unknown_screen(self) -> None:
+            """_render_current_screen() falls back to dashboard for unknown screen names."""
+            tui = SmartNestTUI()
+            tui.current_screen = "unknown_screen"
+            with patch.object(tui.dashboard, "render_live") as mock_render:
+                result = tui._render_current_screen(device_count=None)
+            mock_render.assert_called_once_with(device_count=None, system_status=tui.system_status)
+            assert result is mock_render.return_value
+
+        def test_passes_system_status_to_dashboard(self) -> None:
+            """_render_current_screen() passes current system_status dict to dashboard."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui.system_status = {"status": "online"}
+            with patch.object(tui.dashboard, "render_live") as mock_render:
+                tui._render_current_screen(device_count=2)
+            call_kwargs = mock_render.call_args.kwargs
+            assert call_kwargs["system_status"] == {"status": "online"}
+
+    class TestSmartNestTUIHandleKey:
+        """Tests for _handle_key() navigation and action dispatch."""
+
+        def test_q_sets_is_running_false(self) -> None:
+            """'q' key sets is_running to False."""
+            tui = SmartNestTUI()
+            tui.is_running = True
+            tui._handle_key("q")
+            assert tui.is_running is False
+
+        def test_q_uppercase_sets_is_running_false(self) -> None:
+            """'Q' key (uppercase) also sets is_running to False."""
+            tui = SmartNestTUI()
+            tui.is_running = True
+            tui._handle_key("Q")
+            assert tui.is_running is False
+
+        def test_key_1_navigates_to_dashboard(self) -> None:
+            """'1' key sets current_screen to 'dashboard'."""
+            tui = SmartNestTUI()
+            tui.current_screen = "settings"
+            tui._handle_key("1")
+            assert tui.current_screen == "dashboard"
+
+        def test_key_2_navigates_to_devices(self) -> None:
+            """'2' key sets current_screen to 'devices'."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui._handle_key("2")
+            assert tui.current_screen == "devices"
+
+        def test_key_3_navigates_to_settings(self) -> None:
+            """'3' key sets current_screen to 'settings'."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui._handle_key("3")
+            assert tui.current_screen == "settings"
+
+        def test_l_key_sets_lights_filter_on_devices_screen(self) -> None:
+            """'l' key filters device_list to 'lights' when on devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+            with patch.object(tui.device_list, "set_filter") as mock_filter:
+                tui._handle_key("l")
+            mock_filter.assert_called_once_with("lights")
+
+        def test_s_key_sets_sensors_filter_on_devices_screen(self) -> None:
+            """'s' key filters device_list to 'sensors' when on devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+            with patch.object(tui.device_list, "set_filter") as mock_filter:
+                tui._handle_key("s")
+            mock_filter.assert_called_once_with("sensors")
+
+        def test_w_key_sets_switches_filter_on_devices_screen(self) -> None:
+            """'w' key filters device_list to 'switches' when on devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+            with patch.object(tui.device_list, "set_filter") as mock_filter:
+                tui._handle_key("w")
+            mock_filter.assert_called_once_with("switches")
+
+        def test_a_key_sets_all_filter_on_devices_screen(self) -> None:
+            """'a' key filters device_list to 'all' when on devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+            with patch.object(tui.device_list, "set_filter") as mock_filter:
+                tui._handle_key("a")
+            mock_filter.assert_called_once_with("all")
+
+        def test_a_key_sets_pending_action_add_user_on_settings_screen(self) -> None:
+            """'a' key sets _pending_action to 'add_user' when on settings screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "settings"
+            tui._handle_key("a")
+            assert tui._pending_action == "add_user"
+
+        def test_d_key_sets_pending_action_delete_user_on_settings_screen(self) -> None:
+            """'d' key sets _pending_action to 'delete_user' when on settings screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "settings"
+            tui._handle_key("d")
+            assert tui._pending_action == "delete_user"
+
+        def test_l_key_ignored_on_dashboard_screen(self) -> None:
+            """'l' key has no effect when not on devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            with patch.object(tui.device_list, "set_filter") as mock_filter:
+                tui._handle_key("l")
+            mock_filter.assert_not_called()
+
+        def test_a_key_ignored_on_dashboard_screen(self) -> None:
+            """'a' key has no effect when not on devices or settings screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui._handle_key("a")
+            assert tui._pending_action is None
+
+        def test_handle_navigation_key_unknown_returns_false(self) -> None:
+            """Unknown navigation key returns False and leaves screen unchanged."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            handled = tui._handle_navigation_key("x")
+            assert handled is False
+            assert tui.current_screen == "dashboard"
+
+        def test_handle_devices_key_unknown_returns_false(self) -> None:
+            """Unknown devices key returns False and does not call set_filter."""
+            tui = SmartNestTUI()
+            with patch.object(tui.device_list, "set_filter") as mock_filter:
+                handled = tui._handle_devices_key("x")
+            assert handled is False
+            mock_filter.assert_not_called()
+
+        def test_handle_settings_key_unknown_returns_false(self) -> None:
+            """Unknown settings key returns False and does not set pending action."""
+            tui = SmartNestTUI()
+            handled = tui._handle_settings_key("x")
+            assert handled is False
+            assert tui._pending_action is None
+
+    class TestSmartNestTUIExecuteModalAction:
+        """Tests for _execute_modal_action() method."""
+
+        def test_add_user_calls_settings_prompt_add_user(self) -> None:
+            """'add_user' action calls settings.prompt_add_user()."""
+            tui = SmartNestTUI()
+            with patch.object(tui.settings, "prompt_add_user") as mock_prompt:
+                tui._execute_modal_action("add_user")
+            mock_prompt.assert_called_once_with()
+
+        def test_delete_user_calls_settings_prompt_delete_user(self) -> None:
+            """'delete_user' action calls settings.prompt_delete_user()."""
+            tui = SmartNestTUI()
+            with patch.object(tui.settings, "prompt_delete_user") as mock_prompt:
+                tui._execute_modal_action("delete_user")
+            mock_prompt.assert_called_once_with()
+
+        def test_unknown_action_is_a_noop(self) -> None:
+            """Unknown action strings do not raise and do not call any method."""
+            tui = SmartNestTUI()
+            with (
+                patch.object(tui.settings, "prompt_add_user") as mock_add,
+                patch.object(tui.settings, "prompt_delete_user") as mock_del,
+            ):
+                tui._execute_modal_action("not_a_real_action")
+            mock_add.assert_not_called()
+            mock_del.assert_not_called()
+
+    class TestSmartNestTUIRunPendingActionFlow:
+        """Focused tests for run() outer-loop pending action behavior."""
+
+        def test_run_breaks_after_pending_action_sets_not_running(self) -> None:
+            """run() exits before entering Live when pending action causes shutdown."""
+            tui = SmartNestTUI()
+            tui._pending_action = "add_user"
+
+            def fake_startup() -> None:
+                tui.is_running = True
+
+            def fake_execute(_action: str) -> None:
+                tui.is_running = False
+
+            with (
+                patch.object(tui, "startup", side_effect=fake_startup),
+                patch.object(tui, "_fetch_device_count", return_value=None),
+                patch.object(tui, "_execute_modal_action", side_effect=fake_execute) as mock_exec,
+                patch("backend.tui.app.Live") as mock_live,
+                patch.object(tui, "shutdown"),
+                patch.object(tui.console, "clear"),
+            ):
+                tui.run()
+
+            mock_exec.assert_called_once_with("add_user")
+            mock_live.assert_not_called()
+
+        def test_run_enters_live_after_pending_action_when_still_running(self) -> None:
+            """run() continues into Live when pending action completes without stopping app."""
+            import backend.tui.app as app_module  # noqa: PLC0415
+
+            tui = SmartNestTUI()
+            tui._pending_action = "add_user"
+
+            def fake_startup() -> None:
+                tui.is_running = True
+
+            sleep_calls = 0
+
+            def fake_sleep(_duration: float) -> None:
+                nonlocal sleep_calls
+                sleep_calls += 1
+                tui.is_running = False
+
+            with (
+                patch.object(tui, "startup", side_effect=fake_startup),
+                patch.object(tui, "_fetch_device_count", return_value=None),
+                patch.object(tui, "_execute_modal_action") as mock_exec,
+                patch("backend.tui.app.Live") as mock_live,
+                patch.object(
+                    app_module, "time", MagicMock(sleep=MagicMock(side_effect=fake_sleep))
+                ),
+                patch.object(tui, "shutdown"),
+                patch.object(tui.console, "clear"),
+            ):
+                tui.run()
+
+            mock_exec.assert_called_once_with("add_user")
+            assert sleep_calls >= 1
+            mock_live.assert_called_once()

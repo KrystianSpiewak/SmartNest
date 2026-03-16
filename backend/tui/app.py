@@ -5,15 +5,19 @@ Main TUI application class with lifespan management and graceful shutdown.
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
+import queue
 import signal
 import sys
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 import structlog
+from prompt_toolkit.input import create_input
 from rich.console import Console
 from rich.live import Live
 
@@ -36,11 +40,51 @@ else:
     msvcrt = None
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import FrameType
 
     import paho.mqtt.client as mqtt
+    from prompt_toolkit.input.base import Input
 
 logger = structlog.get_logger(__name__)
+_HTTP_STATUS_UNAUTHORIZED = 401
+
+
+class ReauthHttpClient(httpx.Client):
+    """HTTP client that retries once after refreshing auth on 401."""
+
+    def __init__(
+        self,
+        *args: Any,
+        reauth_callback: Callable[[], bool] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._reauth_callback = reauth_callback
+        self._refresh_in_progress = False
+
+    def request(self, method: str, url: httpx.URL | str, **kwargs: Any) -> httpx.Response:
+        response = super().request(method, url, **kwargs)
+        if response.status_code != _HTTP_STATUS_UNAUTHORIZED:
+            return response
+
+        # Skip refresh for auth endpoint itself and while already refreshing.
+        target = str(url)
+        if target.startswith("/api/auth/login") or target.endswith("/api/auth/login"):
+            return response
+        if self._refresh_in_progress:
+            return response
+        if self._reauth_callback is None:
+            return response
+
+        self._refresh_in_progress = True
+        try:
+            if not self._reauth_callback():
+                return response
+        finally:
+            self._refresh_in_progress = False
+
+        return super().request(method, url, **kwargs)
 
 
 class SmartNestTUI:
@@ -78,20 +122,27 @@ class SmartNestTUI:
             api_base_url: Base URL for backend API (default: http://localhost:8000)
             mqtt_config: MQTT configuration (default: localhost:1883)
         """
-        # Force interactive terminal behavior for Rich Live.
+        # Use conservative terminal defaults for terminal capability forcing,
+        # but keep alternate-screen mode enabled by default for a clean
+        # full-screen TUI that doesn't append frames to terminal history.
         #
-        # In some environments (e.g. terminals that report non-tty / limited
-        # capabilities), Rich may disable cursor control and Live will "print"
-        # each frame, which looks like stale history / duplicated renders.
-        #
-        # You can disable this forcing by setting SMARTNEST_TUI_FORCE_TERMINAL=0.
-        force_terminal = os.getenv("SMARTNEST_TUI_FORCE_TERMINAL", "1") != "0"
+        # Optional overrides:
+        # - SMARTNEST_TUI_FORCE_TERMINAL=1 to force Rich interactive terminal mode.
+        # - SMARTNEST_TUI_ALT_SCREEN=0 to disable alternate-screen mode.
+        force_terminal = os.getenv("SMARTNEST_TUI_FORCE_TERMINAL", "0") == "1"
         self.console = (
             Console(force_terminal=True, force_interactive=True) if force_terminal else Console()
         )
+        self._live_alt_screen = os.getenv("SMARTNEST_TUI_ALT_SCREEN", "1") != "0"
         self.is_running = False
         self.api_base_url = api_base_url
-        self.http_client = httpx.Client(base_url=api_base_url, timeout=5.0)
+        self._auth_username: str | None = None
+        self._auth_password: str | None = None
+        self.http_client = ReauthHttpClient(
+            base_url=api_base_url,
+            timeout=5.0,
+            reauth_callback=self._refresh_auth_token,
+        )
 
         # Initialize screens
         self.dashboard = DashboardScreen(self.console)
@@ -111,12 +162,83 @@ class SmartNestTUI:
 
         # System status state (updated via MQTT)
         self.system_status: dict[str, Any] = {}
+        self._input_queue: queue.Queue[str] = queue.Queue()
+        self._input_stop = threading.Event()
+        self._input_thread_started = False
+        self._pt_input: Input | None = None
+
+        self._pending_action: str | None = None
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_sigint)
         signal.signal(signal.SIGTERM, self._handle_sigterm)
 
         log_with_code(logger, "debug", MessageCode.TUI_INITIALIZED)
+
+    def _stdin_reader_loop(self) -> None:
+        """Read stdin chars and enqueue for non-blocking key handling.
+
+        This is used as a fallback for terminals where msvcrt key polling
+        does not work reliably (e.g., Git Bash PTY on Windows).
+        """
+        if self._pt_input is None:
+            # Safety fallback if prompt_toolkit input wasn't initialized.
+            while not self._input_stop.is_set():
+                char = sys.stdin.read(1)
+                if not char:
+                    return
+                self._input_queue.put(char)
+            return
+
+        try:
+            with self._pt_input.raw_mode():
+                while not self._input_stop.is_set():
+                    for key_press in self._pt_input.read_keys():
+                        data = key_press.data
+                        if data and len(data) == 1:
+                            self._input_queue.put(data)
+        except (EOFError, OSError):
+            return
+
+    def _start_input_reader(self) -> None:
+        """Start background stdin reader once for fallback key input."""
+        if self._input_thread_started:
+            return
+        if not sys.stdin.isatty():
+            return
+        # Avoid background stdin threads in pytest.
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return
+
+        self._input_stop = threading.Event()
+        self._input_thread_started = True
+        self._pt_input = create_input()
+        thread = threading.Thread(target=self._stdin_reader_loop, daemon=True)
+        thread.start()
+
+    def _stop_input_reader(self) -> None:
+        """Stop and reset background stdin reader used for single-key polling."""
+        self._input_stop.set()
+        if self._pt_input is not None:
+            self._pt_input.close()
+            self._pt_input = None
+        self._input_thread_started = False
+
+    def _poll_input_key(self) -> str | None:
+        """Poll one key press from available input sources.
+
+        Returns:
+            Single-character key if available, otherwise None.
+        """
+        if msvcrt is not None and msvcrt.kbhit():  # pragma: no cover
+            return msvcrt.getwch()  # pragma: no cover
+        try:
+            char = self._input_queue.get_nowait()
+        except queue.Empty:
+            return None
+        if char in ("\r", "\n"):
+            return None
+        return char
 
     def _fetch_device_count(self) -> int | None:
         """Fetch device count from backend API.
@@ -138,6 +260,95 @@ class SmartNestTUI:
                 error=str(e),
             )
             return None
+
+    def _authenticate_startup(self) -> bool:
+        """Authenticate TUI user and configure API bearer token.
+
+        Returns:
+            True when login succeeds, False otherwise.
+        """
+        # Keep existing tests non-interactive; dedicated auth tests override this.
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return True
+
+        default_username = os.getenv("SMARTNEST_ADMIN_USERNAME", "admin").strip() or "admin"
+
+        self.console.print("[bold cyan]SmartNest Login[/bold cyan]")
+        username_prompt = f"[bold]Username (default: {default_username}):[/bold] "
+        username = self.console.input(username_prompt).strip() or default_username
+        password = getpass.getpass("Password: ")
+
+        return self._authenticate_with_credentials(username, password)
+
+    def _authenticate_with_credentials(self, username: str, password: str) -> bool:
+        """Authenticate and store credentials for token refresh retries."""
+        self._auth_username = username
+        self._auth_password = password
+
+        if not password:
+            self.console.print("[bold red]Password cannot be empty.[/bold red]")
+            return False
+
+        try:
+            response = self.http_client.post(
+                "/api/auth/login",
+                json={"username": username, "password": password},
+            )
+            response.raise_for_status()
+            token = response.json().get("access_token")
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException) as e:
+            log_with_code(
+                logger,
+                "warning",
+                MessageCode.TUI_API_ERROR,
+                error=f"Authentication failed: {e}",
+            )
+            self.console.print("[bold red]Login failed. Please check credentials.[/bold red]")
+            return False
+
+        if not token:
+            log_with_code(
+                logger,
+                "warning",
+                MessageCode.TUI_API_ERROR,
+                error="Authentication failed: missing access token",
+            )
+            self.console.print("[bold red]Login failed. Please check credentials.[/bold red]")
+            return False
+
+        self.http_client.headers.update({"Authorization": f"Bearer {token}"})
+        self.console.print(f"[bold green]Logged in as {username}[/bold green]")
+        return True
+
+    def _refresh_auth_token(self) -> bool:
+        """Refresh JWT by re-authenticating with cached startup credentials."""
+        if not self._auth_username or not self._auth_password:
+            return False
+
+        try:
+            response = self.http_client.post(
+                "/api/auth/login",
+                json={
+                    "username": self._auth_username,
+                    "password": self._auth_password,
+                },
+            )
+            response.raise_for_status()
+            token = response.json().get("access_token")
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException):
+            return False
+
+        if not token:
+            return False
+
+        self.http_client.headers.update({"Authorization": f"Bearer {token}"})
+        log_with_code(
+            logger,
+            "info",
+            MessageCode.TUI_API_ERROR,
+            error="Auth token expired; successfully re-authenticated",
+        )
+        return True
 
     def _on_system_status(
         self,
@@ -213,6 +424,10 @@ class SmartNestTUI:
         self.is_running = True
         log_with_code(logger, "info", MessageCode.TUI_STARTED)
 
+        if not self._authenticate_startup():
+            self.is_running = False
+            return
+
         # Clear screen before rendering dashboard
         self.console.clear()
 
@@ -250,52 +465,162 @@ class SmartNestTUI:
         self.http_client.close()
         sys.exit(0)
 
+    def _render_current_screen(self, device_count: int | None = None) -> Any:
+        """Render the current screen for Rich Live display.
+
+        Routes to the active screen's render_live() method.
+
+        Args:
+            device_count: Current device count (passed to dashboard only).
+
+        Returns:
+            Renderable object for Rich Live.
+        """
+        if self.current_screen == "devices":
+            return self.device_list.render_live()
+        if self.current_screen == "device_detail":
+            return self.device_detail.render_live()
+        if self.current_screen == "settings":
+            return self.settings.render_live()
+        # Default: dashboard
+        return self.dashboard.render_live(
+            device_count=device_count, system_status=self.system_status
+        )
+
+    def _handle_navigation_key(self, key: str) -> bool:
+        """Handle global navigation keys.
+
+        Args:
+            key: Raw key input.
+
+        Returns:
+            True if key was handled, False otherwise.
+        """
+        if key == "1":
+            self.current_screen = "dashboard"
+            return True
+        if key == "2":
+            self.current_screen = "devices"
+            return True
+        if key == "3":
+            self.current_screen = "settings"
+            return True
+        return False
+
+    def _handle_devices_key(self, key_lower: str) -> bool:
+        """Handle device-list screen keys.
+
+        Args:
+            key_lower: Lower-cased key input.
+
+        Returns:
+            True if key was handled, False otherwise.
+        """
+        filters = {
+            "l": "lights",
+            "s": "sensors",
+            "w": "switches",
+            "a": "all",
+        }
+        filter_type = filters.get(key_lower)
+        if filter_type is None:
+            return False
+        self.device_list.set_filter(filter_type)
+        return True
+
+    def _handle_settings_key(self, key_lower: str) -> bool:
+        """Handle settings screen keys.
+
+        Args:
+            key_lower: Lower-cased key input.
+
+        Returns:
+            True if key was handled, False otherwise.
+        """
+        if key_lower == "a":
+            self._pending_action = "add_user"
+            return True
+        if key_lower == "d":
+            self._pending_action = "delete_user"
+            return True
+        return False
+
+    def _handle_key(self, key: str) -> None:
+        """Handle keyboard input for navigation and screen actions.
+
+        Args:
+            key: Single character key pressed by the user.
+        """
+        key_lower = key.lower()
+        if key == "\x03":
+            self.is_running = False
+            return
+        if key_lower == "q":
+            self.is_running = False
+            return
+        if self._handle_navigation_key(key):
+            return
+        if self.current_screen == "devices":
+            self._handle_devices_key(key_lower)
+            return
+        if self.current_screen == "settings":
+            self._handle_settings_key(key_lower)
+
+    def _execute_modal_action(self, action: str) -> None:
+        """Execute a modal action outside the Rich Live context.
+
+        Called by the outer run() loop after the Live context has exited,
+        so that console.input() prompts render without corruption.
+
+        Args:
+            action: Action identifier ("add_user" or "delete_user").
+        """
+        if action == "add_user":
+            self.settings.prompt_add_user()
+        elif action == "delete_user":
+            self.settings.prompt_delete_user()
+
     def run(self) -> None:
         """Run the TUI application.
 
-        Main application loop with live dashboard updates via Rich Live.
-        Refreshes at 4 FPS (250ms) to display real-time MQTT updates.
+        Main application loop with live display via Rich Live.
+        Outer loop handles modal actions (prompts that run outside Live).
+        Inner loop drives cross-platform polling refresh at 4 FPS (250ms).
         """
         try:
             self.startup()
+            if not self.is_running:
+                return
+            self._start_input_reader()
 
             # Fetch initial device count
             device_count = self._fetch_device_count()
 
-            # Live update loop with Rich Live (4 FPS = 250ms refresh).
-            # Help text is inside the dashboard render_live so we don't leave
-            # extra lines on the main buffer before switching to alternate screen.
-            with Live(
-                self.dashboard.render_live(
-                    device_count=device_count, system_status=self.system_status
-                ),
-                console=self.console,
-                screen=True,
-                auto_refresh=False,
-            ) as live:
-                # Keep alive until Ctrl+C (cross-platform compatible)
-                try:
-                    signal.pause()  # type: ignore[attr-defined]  # Unix only, not available on Windows
-                except AttributeError:
-                    # Windows doesn't have signal.pause(), use alternative
-                    while self.is_running:
-                        # Handle simple keyboard shortcuts (Windows-only).
-                        # Use non-blocking msvcrt to detect 'q' for quit.
-                        if (
-                            msvcrt is not None and msvcrt.kbhit()
-                        ):  # pragma: no cover - Windows-only interactive keyboard handling
-                            key = msvcrt.getwch()  # pragma: no cover
-                            if key.lower() == "q":  # pragma: no cover
-                                # Request shutdown and break loop; finalizer will
-                                # call shutdown() once after Live context exits.
-                                self.is_running = False  # pragma: no cover
-                                break  # pragma: no cover
+            # Outer loop: re-enters Live after each modal action
+            while self.is_running or self._pending_action is not None:
+                # Execute any pending modal action outside the Live context
+                if self._pending_action is not None:
+                    action = self._pending_action
+                    self._pending_action = None
+                    self._stop_input_reader()
+                    self._execute_modal_action(action)
+                    if not self.is_running:
+                        break
+                    self._start_input_reader()
 
-                        # Update live display with latest state
+                # Inner loop: live-refresh current screen at 4 FPS
+                with Live(
+                    self._render_current_screen(device_count=device_count),
+                    console=self.console,
+                    screen=self._live_alt_screen,
+                    auto_refresh=False,
+                ) as live:
+                    while self.is_running and self._pending_action is None:
+                        key = self._poll_input_key()
+                        if key is not None:
+                            self._handle_key(key)
                         live.update(
-                            self.dashboard.render_live(
-                                device_count=device_count, system_status=self.system_status
-                            ),
+                            self._render_current_screen(device_count=device_count),
                             refresh=False,
                         )
                         live.refresh()
@@ -305,7 +630,8 @@ class SmartNestTUI:
             # Handled by _handle_sigint, but catch here for cleanliness
             pass
         finally:
-            # Always call shutdown() to ensure clean exit (idempotent)
+            # Always restore terminal and perform clean exit
+            self._stop_input_reader()
             self.console.clear()
             self.shutdown()
 

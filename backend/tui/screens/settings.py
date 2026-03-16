@@ -5,15 +5,16 @@ User management interface with CRUD operations for user accounts.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    import httpx
     from rich.console import Console
 
 
@@ -42,6 +43,9 @@ class SettingsScreen:
         self.console = console
         self.http_client = http_client
         self.users: list[dict[str, Any]] = []
+        self._last_fetch_at = 0.0
+        self._last_fetch_success = False
+        self._fetch_interval_seconds = 2.0
 
     def fetch_users(self) -> bool:
         """Fetch users from API and cache locally.
@@ -49,14 +53,97 @@ class SettingsScreen:
         Returns:
             True if successful, False on API error
         """
+        now = time.monotonic()
+        if now - self._last_fetch_at < self._fetch_interval_seconds:
+            return self._last_fetch_success
+
         try:
             response = self.http_client.get("/api/users")
             response.raise_for_status()
             self.users = response.json()
-        except Exception:
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException, ValueError):
             self.users = []
+            self._last_fetch_at = now
+            self._last_fetch_success = False
             return False
         else:
+            self._last_fetch_at = now
+            self._last_fetch_success = True
+            return True
+
+    def prompt_add_user(self) -> bool:
+        """Prompt for new user details and create via API.
+
+        Must be called outside the Rich Live context to allow console input.
+
+        Returns:
+            True if user was created successfully, False otherwise.
+        """
+        username = self.console.input("[bold]Username:[/bold] ")
+        if not username.strip():
+            return False
+        email_default = f"{username.strip()}@example.com"
+        email = (
+            self.console.input(f"[bold]Email (default: {email_default}):[/bold] ") or email_default
+        )
+        if not email.strip():
+            return False
+        password = self.console.input("[bold]Password:[/bold] ", password=True)
+        if not password.strip():
+            return False
+        role = (
+            self.console.input("[bold]Role (admin/user/readonly, default: user):[/bold] ") or "user"
+        )
+
+        try:
+            response = self.http_client.post(
+                "/api/users",
+                json={
+                    "username": username.strip(),
+                    "email": email.strip(),
+                    "password": password.strip(),
+                    "role": role.strip() or "user",
+                },
+            )
+            response.raise_for_status()
+        except (httpx.ConnectError, httpx.TimeoutException):
+            return False
+        except httpx.HTTPStatusError:
+            # Show backend validation details (e.g., password complexity, invalid email).
+            try:
+                detail = response.json().get("detail")
+            except (ValueError, AttributeError):
+                detail = None
+            if detail:
+                self.console.print(f"[bold red]Add user failed:[/bold red] {detail}")
+            return False
+        else:
+            self._last_fetch_at = 0.0
+            return True
+
+    def prompt_delete_user(self) -> bool:
+        """Prompt for a user ID and delete that user via API.
+
+        Must be called outside the Rich Live context to allow console input.
+
+        Returns:
+            True if user was deleted successfully, False otherwise.
+        """
+        if not self.users:
+            return False
+
+        user_id_str = self.console.input("[bold]User ID to delete:[/bold] ")
+        if not user_id_str.strip():
+            return False
+
+        try:
+            user_id = int(user_id_str.strip())
+            response = self.http_client.delete(f"/api/users/{user_id}")
+            response.raise_for_status()
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException, ValueError):
+            return False
+        else:
+            self._last_fetch_at = 0.0
             return True
 
     def render(self) -> None:
@@ -208,12 +295,12 @@ class SettingsScreen:
             Rich Text with menu options
         """
         menu = Text()
-        menu.append("[F1]", style="bold blue")
+        menu.append("[1]", style="bold blue")
         menu.append(" Dashboard  ")
-        menu.append("[F2]", style="bold blue")
-        menu.append(" Settings  ")
-        menu.append("[F3]", style="bold blue")
+        menu.append("[2]", style="bold blue")
         menu.append(" Devices  ")
+        menu.append("[3]", style="bold blue")
+        menu.append(" Settings  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 
