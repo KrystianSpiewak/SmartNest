@@ -188,6 +188,8 @@ class SettingsScreen:
         success = self.fetch_users()
 
         return Group(
+            self._render_header(),
+            Text(),  # Blank line
             self._render_user_table(success),
             Text(),  # Blank line
             self._render_instructions(),
@@ -301,6 +303,10 @@ class SettingsScreen:
         menu.append(" Devices  ")
         menu.append("[3]", style="bold blue")
         menu.append(" Settings  ")
+        menu.append("[4]", style="bold blue")
+        menu.append(" Sensors  ")
+        menu.append("[5]", style="bold blue")
+        menu.append(" Reports  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 

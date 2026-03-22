@@ -15,7 +15,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.mqtt_bridge import MQTTBridge
-from backend.api.routes import auth_router, devices_router, users_router
+from backend.api.routes import (
+    auth_router,
+    devices_router,
+    reports_router,
+    sensors_router,
+    users_router,
+)
 from backend.config import get_settings
 from backend.database.connection import init_database
 from backend.logging import get_logger
@@ -107,6 +113,8 @@ app.add_middleware(
 # Register API routes
 app.include_router(auth_router)
 app.include_router(devices_router)
+app.include_router(sensors_router)
+app.include_router(reports_router)
 app.include_router(users_router)
 
 

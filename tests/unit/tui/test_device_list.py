@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -149,6 +149,21 @@ class TestFilterMethods:
         """Test setting search query."""
         device_list_screen.set_search("kitchen")
         assert device_list_screen.search_query == "kitchen"
+
+    def test_prompt_search_sets_query(self, device_list_screen: DeviceListScreen) -> None:
+        """prompt_search() updates query from user input."""
+        with patch.object(device_list_screen.console, "input", return_value=" hall "):
+            device_list_screen.prompt_search()
+
+        assert device_list_screen.search_query == "hall"
+
+    def test_prompt_search_blank_clears_query(self, device_list_screen: DeviceListScreen) -> None:
+        """prompt_search() clears query when input is empty."""
+        device_list_screen.search_query = "existing"
+        with patch.object(device_list_screen.console, "input", return_value="   "):
+            device_list_screen.prompt_search()
+
+        assert device_list_screen.search_query == ""
 
 
 class TestGetFilteredDevices:
@@ -339,6 +354,35 @@ class TestRenderMethods:
         ]
         table_panel = device_list_screen._render_device_table(api_success=True)
         assert isinstance(table_panel, Panel)
+
+    def test_render_device_table_last_seen_fallbacks(self) -> None:
+        """_render_device_table() falls back to updated_at/created_at when last_seen_at missing."""
+        console = Console(record=True, width=140)
+        http_client = MagicMock()
+        screen = DeviceListScreen(console, http_client)
+        screen.devices = [
+            {
+                "id": "dev_1",
+                "friendly_name": "Device One",
+                "device_type": "light",
+                "status": "online",
+                "updated_at": "2026-02-26T13:15:16",
+            },
+            {
+                "id": "dev_2",
+                "friendly_name": "Device Two",
+                "device_type": "light",
+                "status": "offline",
+                "created_at": "2026-02-26 14:20:30",
+            },
+        ]
+
+        panel = screen._render_device_table(api_success=True)
+        console.print(panel)
+        rendered = console.export_text()
+
+        assert "13:15:16" in rendered
+        assert "14:20:30" in rendered
 
     def test_render_instructions(self, device_list_screen: DeviceListScreen) -> None:
         """Test _render_instructions returns Panel."""

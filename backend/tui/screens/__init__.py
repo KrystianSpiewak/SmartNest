@@ -8,6 +8,7 @@ from __future__ import annotations
 from backend.tui.screens.dashboard import DashboardScreen
 from backend.tui.screens.device_detail import DeviceDetailScreen
 from backend.tui.screens.device_list import DeviceListScreen
+from backend.tui.screens.reports import ReportsScreen
 from backend.tui.screens.sensor_view import SensorViewScreen
 from backend.tui.screens.settings import SettingsScreen
 
@@ -15,6 +16,7 @@ __all__ = [
     "DashboardScreen",
     "DeviceDetailScreen",
     "DeviceListScreen",
+    "ReportsScreen",
     "SensorViewScreen",
     "SettingsScreen",
 ]

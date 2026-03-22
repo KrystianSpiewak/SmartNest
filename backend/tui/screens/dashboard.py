@@ -32,7 +32,12 @@ class DashboardScreen:
         """
         self.console = console
 
-    def render(self, device_count: int | None = None) -> None:
+    def render(
+        self,
+        device_count: int | None = None,
+        system_status: dict[str, Any] | None = None,
+        summary: dict[str, Any] | None = None,
+    ) -> None:
         """Render the dashboard screen with static content.
 
         Currently displays placeholder data. Future phases will integrate:
@@ -50,22 +55,22 @@ class DashboardScreen:
         self.console.print()
 
         # System Status
-        system_status = self._render_system_status()
-        self.console.print(system_status)
+        status_panel = self._render_system_status(mqtt_status=system_status, summary=summary)
+        self.console.print(status_panel)
         self.console.print()
 
         # Device Summary
-        device_summary = self._render_device_summary(device_count=device_count)
+        device_summary = self._render_device_summary(device_count=device_count, summary=summary)
         self.console.print(device_summary)
         self.console.print()
 
         # Recent Activity
-        recent_activity = self._render_recent_activity()
+        recent_activity = self._render_recent_activity(summary=summary)
         self.console.print(recent_activity)
         self.console.print()
 
         # Alerts
-        alerts = self._render_alerts()
+        alerts = self._render_alerts(summary=summary)
         self.console.print(alerts)
         self.console.print()
 
@@ -77,6 +82,7 @@ class DashboardScreen:
         self,
         device_count: int | None = None,
         system_status: dict[str, Any] | None = None,
+        summary: dict[str, Any] | None = None,
     ) -> Group:
         """Render dashboard as a live-updatable Group.
 
@@ -92,13 +98,13 @@ class DashboardScreen:
         return Group(
             self._render_header(),
             Text(),  # Blank line
-            self._render_system_status(mqtt_status=system_status),
+            self._render_system_status(mqtt_status=system_status, summary=summary),
             Text(),  # Blank line
-            self._render_device_summary(device_count=device_count),
+            self._render_device_summary(device_count=device_count, summary=summary),
             Text(),  # Blank line
-            self._render_recent_activity(),
+            self._render_recent_activity(summary=summary),
             Text(),  # Blank line
-            self._render_alerts(),
+            self._render_alerts(summary=summary),
             Text(),  # Blank line
             self._render_menu(),
             Text(),  # Blank line
@@ -132,7 +138,11 @@ class DashboardScreen:
             expand=True,
         )
 
-    def _render_system_status(self, mqtt_status: dict[str, Any] | None = None) -> Panel:
+    def _render_system_status(
+        self,
+        mqtt_status: dict[str, Any] | None = None,
+        summary: dict[str, Any] | None = None,
+    ) -> Panel:
         """Render system status panel.
 
         Shows status of MQTT broker, backend API, and database.
@@ -149,32 +159,46 @@ class DashboardScreen:
         table.add_column(justify="left")
         table.add_column(style="dim", justify="left")
 
-        # MQTT Broker - show status from MQTT message if available
-        if mqtt_status and mqtt_status.get("status") == "online":
+        # MQTT Broker - prefer explicit status payload, fall back to connection state.
+        status_value = (mqtt_status or {}).get("status")
+        if status_value == "online":
             mqtt_text = Text("● CONNECTED", style="bold green")
-        elif mqtt_status and mqtt_status.get("status") == "offline":
+        elif status_value == "offline":
             mqtt_text = Text("● OFFLINE", style="bold red")
+        elif (mqtt_status or {}).get("connected") is True:
+            mqtt_text = Text("● CONNECTED", style="bold green")
         else:
-            mqtt_text = Text("● LOADING...", style="bold yellow")
+            mqtt_text = Text("● WAITING", style="bold yellow")
 
-        table.add_row(
-            "MQTT Broker:",
-            mqtt_text,
-            "Uptime: --",
-        )
+        uptime = (mqtt_status or {}).get("uptime", "--")
+        table.add_row("MQTT Broker:", mqtt_text, f"Uptime: {uptime}")
 
         # Backend API
         table.add_row(
             "Backend API:",
-            Text("● LOADING...", style="bold yellow"),
-            "Response Time: --",
+            Text(
+                f"● {str((summary or {}).get('backend_status', 'loading')).upper()}",
+                style=(
+                    "bold green"
+                    if (summary or {}).get("backend_status") == "online"
+                    else "bold yellow"
+                ),
+            ),
+            f"Response Time: {(summary or {}).get('response_time_ms', '--')} ms",
         )
 
         # Database
         table.add_row(
             "Database:",
-            Text("● LOADING...", style="bold yellow"),
-            "Size: --",
+            Text(
+                f"● {str((summary or {}).get('database_status', 'loading')).upper()}",
+                style=(
+                    "bold green"
+                    if (summary or {}).get("database_status") == "online"
+                    else "bold yellow"
+                ),
+            ),
+            f"Size: {(summary or {}).get('database_size_mb', '--')} MB",
         )
 
         return Panel(
@@ -184,7 +208,11 @@ class DashboardScreen:
             border_style="blue",
         )
 
-    def _render_device_summary(self, device_count: int | None = None) -> Panel:
+    def _render_device_summary(
+        self,
+        device_count: int | None = None,
+        summary: dict[str, Any] | None = None,
+    ) -> Panel:
         """Render device summary panel.
 
         Shows total devices, online count, and offline count.
@@ -213,17 +241,26 @@ class DashboardScreen:
             "",
         )
 
+        online_count = int((summary or {}).get("online_devices", 0))
+        offline_count = int((summary or {}).get("offline_devices", 0))
+
         # Online Devices
         table.add_row(
             "Online:",
-            Text("--", style="bold green"),
-            Text("█" * 10, style="green"),
+            Text(str(online_count), style="bold green"),
+            "",
         )
 
         # Offline Devices
         table.add_row(
             "Offline:",
-            Text("--", style="bold red"),
+            Text(str(offline_count), style="bold red"),
+            "",
+        )
+
+        table.add_row(
+            "Sensor Devices:",
+            Text(str((summary or {}).get("sensor_devices", 0)), style="bold cyan"),
             "",
         )
 
@@ -234,7 +271,7 @@ class DashboardScreen:
             border_style="blue",
         )
 
-    def _render_recent_activity(self) -> Panel:
+    def _render_recent_activity(self, summary: dict[str, Any] | None = None) -> Panel:
         """Render recent activity log panel.
 
         Shows last N device state changes and events.
@@ -243,9 +280,13 @@ class DashboardScreen:
         Returns:
             Rich Panel with activity log entries
         """
-        activity_lines = [
-            Text("--:--:-- ", style="dim") + Text("No recent activity", style="dim italic"),
-        ]
+        activity = (summary or {}).get("recent_activity", [])
+        if activity:
+            activity_lines = [Text(line, style="dim") for line in activity]
+        else:
+            activity_lines = [
+                Text("--:--:-- ", style="dim") + Text("No recent activity", style="dim italic"),
+            ]
 
         content = Group(*activity_lines)
 
@@ -256,7 +297,7 @@ class DashboardScreen:
             border_style="blue",
         )
 
-    def _render_alerts(self) -> Panel:
+    def _render_alerts(self, summary: dict[str, Any] | None = None) -> Panel:
         """Render alerts and warnings panel.
 
         Shows critical alerts (offline devices, errors, etc.).
@@ -265,9 +306,13 @@ class DashboardScreen:
         Returns:
             Rich Panel with alert messages
         """
-        alert_lines = [
-            Text("No alerts", style="dim italic"),
-        ]
+        alerts = (summary or {}).get("alerts", [])
+        if alerts:
+            alert_lines = [Text(f"• {alert}", style="bold yellow") for alert in alerts]
+        else:
+            alert_lines = [
+                Text("No alerts", style="dim italic"),
+            ]
 
         content = Group(*alert_lines)
 
@@ -293,6 +338,10 @@ class DashboardScreen:
         menu.append(" Devices  ")
         menu.append("[3]", style="bold blue")
         menu.append(" Settings  ")
+        menu.append("[4]", style="bold blue")
+        menu.append(" Sensors  ")
+        menu.append("[5]", style="bold blue")
+        menu.append(" Reports  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 

@@ -19,6 +19,7 @@ from backend.tui.app import ReauthHttpClient, SmartNestTUI
 from backend.tui.screens.dashboard import DashboardScreen
 from backend.tui.screens.device_detail import DeviceDetailScreen
 from backend.tui.screens.device_list import DeviceListScreen
+from backend.tui.screens.reports import ReportsScreen
 from backend.tui.screens.sensor_view import SensorViewScreen
 from backend.tui.screens.settings import SettingsScreen
 
@@ -64,6 +65,13 @@ class TestSmartNestTUIInit:
         assert isinstance(tui.settings, SettingsScreen)
         assert tui.settings.console is tui.console
         assert tui.settings.http_client is tui.http_client
+
+    def test_creates_reports_screen(self) -> None:
+        """TUI creates a ReportsScreen instance."""
+        tui = SmartNestTUI()
+        assert isinstance(tui.reports, ReportsScreen)
+        assert tui.reports.console is tui.console
+        assert tui.reports.http_client is tui.http_client
 
     def test_current_screen_defaults_to_dashboard(self) -> None:
         """TUI initializes with dashboard as current screen."""
@@ -137,6 +145,7 @@ class TestSmartNestTUIStartup:
         with (
             patch.object(tui.mqtt_client, "connect"),
             patch.object(tui, "_fetch_device_count", return_value=None),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
         ):
             tui.startup()
         assert tui.is_running is True
@@ -147,6 +156,7 @@ class TestSmartNestTUIStartup:
         with (
             patch("backend.tui.app.log_with_code") as mock_log,
             patch.object(tui.mqtt_client, "connect"),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
         ):
             # Clear initialization log call
             mock_log.reset_mock()
@@ -164,6 +174,7 @@ class TestSmartNestTUIStartup:
         with (
             patch.object(tui.console, "clear") as mock_clear,
             patch.object(tui.mqtt_client, "connect"),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
         ):
             tui.startup()
             # Should clear console once
@@ -173,7 +184,8 @@ class TestSmartNestTUIStartup:
         """startup() connects to MQTT broker."""
         tui = SmartNestTUI()
         with patch.object(tui.mqtt_client, "connect") as mock_connect:
-            tui.startup()
+            with patch.object(tui, "_fetch_dashboard_summary", return_value=None):
+                tui.startup()
             # Should connect to MQTT broker
             mock_connect.assert_called_once()
 
@@ -184,6 +196,7 @@ class TestSmartNestTUIStartup:
             patch.object(tui.mqtt_client, "connect"),
             patch.object(tui.mqtt_client, "subscribe") as mock_subscribe,
             patch.object(tui.mqtt_client, "add_topic_handler"),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
         ):
             tui.startup()
             # Should subscribe to system status topic
@@ -196,6 +209,7 @@ class TestSmartNestTUIStartup:
             patch.object(tui.mqtt_client, "connect"),
             patch.object(tui.mqtt_client, "subscribe"),
             patch.object(tui.mqtt_client, "add_topic_handler") as mock_add_handler,
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
         ):
             tui.startup()
             # Verify exact topic string and callback method
@@ -209,6 +223,7 @@ class TestSmartNestTUIStartup:
         with (
             patch.object(tui.mqtt_client, "connect"),
             patch.object(tui.dashboard, "render") as mock_render,
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
         ):
             tui.startup()
             # Should render dashboard once
@@ -220,6 +235,7 @@ class TestSmartNestTUIStartup:
         with (
             patch.object(tui.mqtt_client, "connect"),
             patch.object(tui, "_fetch_device_count", return_value=5) as mock_fetch,
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
         ):
             tui.startup()
             # Should call _fetch_device_count once
@@ -231,11 +247,16 @@ class TestSmartNestTUIStartup:
         with (
             patch.object(tui.mqtt_client, "connect"),
             patch.object(tui, "_fetch_device_count", return_value=7),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
             patch.object(tui.dashboard, "render") as mock_render,
         ):
             tui.startup()
             # Should pass device_count=7 to render()
-            mock_render.assert_called_once_with(device_count=7)
+            mock_render.assert_called_once_with(
+                device_count=7,
+                system_status=tui.system_status,
+                summary=None,
+            )
 
     def test_startup_stops_when_authentication_fails(self) -> None:
         """startup() aborts before MQTT connect when authentication fails."""
@@ -624,6 +645,65 @@ class TestSmartNestTUIFetchDeviceCount:
             # Second call should be no-op
             tui.shutdown()
         assert tui.is_running is False
+
+
+class TestSmartNestTUIFetchDashboardSummary:
+    """Tests for _fetch_dashboard_summary() method."""
+
+    def test_fetch_dashboard_summary_success(self) -> None:
+        """Summary endpoint result is returned and cached on success."""
+        tui = SmartNestTUI()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"online_devices": 2, "offline_devices": 1}
+
+        with patch.object(tui.http_client, "get", return_value=mock_response) as mock_get:
+            result = tui._fetch_dashboard_summary(force=True)
+
+        assert result == {"online_devices": 2, "offline_devices": 1}
+        assert tui._dashboard_summary_cache == result
+        mock_get.assert_called_once_with("/api/reports/dashboard-summary")
+
+    def test_fetch_dashboard_summary_uses_cache_within_ttl(self) -> None:
+        """Cached summary is used when inside TTL and force=False."""
+        tui = SmartNestTUI()
+        tui._dashboard_summary_cache = {"online_devices": 3}
+        tui._dashboard_summary_last_fetch = 10.0
+        tui._dashboard_summary_ttl_seconds = 2.0
+
+        with (
+            patch("backend.tui.app.time.monotonic", return_value=11.0),
+            patch.object(tui.http_client, "get") as mock_get,
+        ):
+            result = tui._fetch_dashboard_summary(force=False)
+
+        assert result == {"online_devices": 3}
+        mock_get.assert_not_called()
+
+    def test_fetch_dashboard_summary_returns_cached_on_api_error(self) -> None:
+        """On API failure, method returns cached summary and logs warning."""
+        tui = SmartNestTUI()
+        tui._dashboard_summary_cache = {"online_devices": 1}
+
+        with (
+            patch.object(tui.http_client, "get", side_effect=httpx.ConnectError("refused")),
+            patch("backend.tui.app.log_with_code") as mock_log,
+        ):
+            result = tui._fetch_dashboard_summary(force=True)
+
+        assert result == {"online_devices": 1}
+        assert any(call.args[2] == MessageCode.TUI_API_ERROR for call in mock_log.call_args_list)
+
+    def test_fetch_dashboard_summary_handles_non_dict_payload(self) -> None:
+        """Non-dict JSON payload returns current cache safely."""
+        tui = SmartNestTUI()
+        tui._dashboard_summary_cache = {"online_devices": 7}
+        mock_response = MagicMock()
+        mock_response.json.return_value = ["invalid"]
+
+        with patch.object(tui.http_client, "get", return_value=mock_response):
+            result = tui._fetch_dashboard_summary(force=True)
+
+        assert result == {"online_devices": 7}
 
     def test_shutdown_logs_with_code(self) -> None:
         """shutdown() logs TUI_SHUTDOWN message code."""
@@ -1465,6 +1545,7 @@ class TestSmartNestTUIRunLive:
             patch.object(tui, "startup", side_effect=fake_startup),
             patch.object(app_module, "signal", mock_signal),
             patch.object(tui, "_fetch_device_count", return_value=device_count),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
             patch("backend.tui.app.Live") as mock_live_class,
             patch.object(app_module, "time", mock_time),
             patch.object(tui, "shutdown"),
@@ -1576,6 +1657,7 @@ class TestSmartNestTUIRunLive:
             patch.object(tui, "startup", side_effect=fake_startup),
             patch.object(app_module, "signal", MagicMock(spec=[])),
             patch.object(tui, "_fetch_device_count", return_value=None),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
             patch("backend.tui.app.Live"),
             patch.object(
                 app_module,
@@ -1602,6 +1684,7 @@ class TestSmartNestTUIRunLive:
             patch.object(tui, "startup", side_effect=fake_startup),
             patch.object(app_module, "signal", MagicMock(spec=[])),
             patch.object(tui, "_fetch_device_count", return_value=None),
+            patch.object(tui, "_fetch_dashboard_summary", return_value=None),
             patch("backend.tui.app.Live"),
             patch.object(
                 app_module,
@@ -1729,7 +1812,11 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
             tui.current_screen = "dashboard"
             with patch.object(tui.dashboard, "render_live") as mock_render:
                 result = tui._render_current_screen(device_count=5)
-            mock_render.assert_called_once_with(device_count=5, system_status=tui.system_status)
+            mock_render.assert_called_once_with(
+                device_count=5,
+                system_status=tui.system_status,
+                summary=tui._dashboard_summary_cache,
+            )
             assert result is mock_render.return_value
 
         def test_renders_device_list_when_current_screen_is_devices(self) -> None:
@@ -1759,13 +1846,35 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
             mock_render.assert_called_once_with()
             assert result is mock_render.return_value
 
+        def test_renders_sensor_view_when_current_screen_is_sensors(self) -> None:
+            """_render_current_screen() delegates to sensor_view.render_live."""
+            tui = SmartNestTUI()
+            tui.current_screen = "sensors"
+            with patch.object(tui.sensor_view, "render_live") as mock_render:
+                result = tui._render_current_screen()
+            mock_render.assert_called_once_with()
+            assert result is mock_render.return_value
+
+        def test_renders_reports_when_current_screen_is_reports(self) -> None:
+            """_render_current_screen() delegates to reports.render_live."""
+            tui = SmartNestTUI()
+            tui.current_screen = "reports"
+            with patch.object(tui.reports, "render_live") as mock_render:
+                result = tui._render_current_screen()
+            mock_render.assert_called_once_with()
+            assert result is mock_render.return_value
+
         def test_falls_back_to_dashboard_for_unknown_screen(self) -> None:
             """_render_current_screen() falls back to dashboard for unknown screen names."""
             tui = SmartNestTUI()
             tui.current_screen = "unknown_screen"
             with patch.object(tui.dashboard, "render_live") as mock_render:
                 result = tui._render_current_screen(device_count=None)
-            mock_render.assert_called_once_with(device_count=None, system_status=tui.system_status)
+            mock_render.assert_called_once_with(
+                device_count=None,
+                system_status=tui.system_status,
+                summary=tui._dashboard_summary_cache,
+            )
             assert result is mock_render.return_value
 
         def test_passes_system_status_to_dashboard(self) -> None:
@@ -1777,6 +1886,39 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
                 tui._render_current_screen(device_count=2)
             call_kwargs = mock_render.call_args.kwargs
             assert call_kwargs["system_status"] == {"status": "online"}
+            assert "summary" in call_kwargs
+
+        def test_formats_mqtt_uptime_in_seconds_when_under_one_minute(self) -> None:
+            """_render_current_screen() formats uptime as seconds for sub-minute uptime."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui.system_status = {"connected": True, "status": "online"}
+            tui._mqtt_connected_since = 100.0
+
+            with (
+                patch("backend.tui.app.time.monotonic", return_value=145.0),
+                patch.object(tui.dashboard, "render_live") as mock_render,
+            ):
+                tui._render_current_screen(device_count=1)
+
+            call_kwargs = mock_render.call_args.kwargs
+            assert call_kwargs["system_status"]["uptime"] == "45s"
+
+        def test_formats_mqtt_uptime_in_minutes_when_over_one_minute(self) -> None:
+            """_render_current_screen() formats uptime as Xm Ys for minute+ uptime."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui.system_status = {"connected": True, "status": "online"}
+            tui._mqtt_connected_since = 100.0
+
+            with (
+                patch("backend.tui.app.time.monotonic", return_value=225.0),
+                patch.object(tui.dashboard, "render_live") as mock_render,
+            ):
+                tui._render_current_screen(device_count=1)
+
+            call_kwargs = mock_render.call_args.kwargs
+            assert call_kwargs["system_status"]["uptime"] == "2m 5s"
 
     class TestSmartNestTUIHandleKey:
         """Tests for _handle_key() navigation and action dispatch."""
@@ -1816,6 +1958,20 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
             tui._handle_key("3")
             assert tui.current_screen == "settings"
 
+        def test_key_4_navigates_to_sensors(self) -> None:
+            """'4' key sets current_screen to 'sensors'."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui._handle_key("4")
+            assert tui.current_screen == "sensors"
+
+        def test_key_5_navigates_to_reports(self) -> None:
+            """'5' key sets current_screen to 'reports'."""
+            tui = SmartNestTUI()
+            tui.current_screen = "dashboard"
+            tui._handle_key("5")
+            assert tui.current_screen == "reports"
+
         def test_l_key_sets_lights_filter_on_devices_screen(self) -> None:
             """'l' key filters device_list to 'lights' when on devices screen."""
             tui = SmartNestTUI()
@@ -1847,6 +2003,39 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
             with patch.object(tui.device_list, "set_filter") as mock_filter:
                 tui._handle_key("a")
             mock_filter.assert_called_once_with("all")
+
+        def test_slash_sets_pending_search_action_on_devices_screen(self) -> None:
+            """'/' key queues search modal action when on devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+
+            tui._handle_key("/")
+
+            assert tui._pending_action == "search_devices"
+
+        def test_r_refreshes_sensor_screen(self) -> None:
+            """'r' triggers sensor refresh on sensors screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "sensors"
+            with patch.object(tui.sensor_view, "refresh_now") as mock_refresh:
+                tui._handle_key("r")
+            mock_refresh.assert_called_once_with()
+
+        def test_e_exports_sensor_csv_on_sensors_screen(self) -> None:
+            """'e' triggers sensor CSV export on sensors screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "sensors"
+            with patch.object(tui.sensor_view, "export_csv") as mock_export:
+                tui._handle_key("e")
+            mock_export.assert_called_once_with()
+
+        def test_r_refreshes_reports_screen(self) -> None:
+            """'r' triggers report summary refresh on reports screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "reports"
+            with patch.object(tui.reports, "refresh_now") as mock_refresh:
+                tui._handle_key("r")
+            mock_refresh.assert_called_once_with()
 
         def test_a_key_sets_pending_action_add_user_on_settings_screen(self) -> None:
             """'a' key sets _pending_action to 'add_user' when on settings screen."""
@@ -1900,6 +2089,26 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
             assert handled is False
             assert tui._pending_action is None
 
+        def test_handle_sensor_key_unknown_returns_false(self) -> None:
+            """Unknown sensor key returns False and does not invoke sensor actions."""
+            tui = SmartNestTUI()
+            with (
+                patch.object(tui.sensor_view, "refresh_now") as mock_refresh,
+                patch.object(tui.sensor_view, "export_csv") as mock_export,
+            ):
+                handled = tui._handle_sensor_key("x")
+            assert handled is False
+            mock_refresh.assert_not_called()
+            mock_export.assert_not_called()
+
+        def test_handle_reports_key_unknown_returns_false(self) -> None:
+            """Unknown reports key returns False and does not refresh reports."""
+            tui = SmartNestTUI()
+            with patch.object(tui.reports, "refresh_now") as mock_refresh:
+                handled = tui._handle_reports_key("x")
+            assert handled is False
+            mock_refresh.assert_not_called()
+
     class TestSmartNestTUIExecuteModalAction:
         """Tests for _execute_modal_action() method."""
 
@@ -1915,6 +2124,13 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
             tui = SmartNestTUI()
             with patch.object(tui.settings, "prompt_delete_user") as mock_prompt:
                 tui._execute_modal_action("delete_user")
+            mock_prompt.assert_called_once_with()
+
+        def test_search_devices_calls_device_list_prompt_search(self) -> None:
+            """'search_devices' action calls device_list.prompt_search()."""
+            tui = SmartNestTUI()
+            with patch.object(tui.device_list, "prompt_search") as mock_prompt:
+                tui._execute_modal_action("search_devices")
             mock_prompt.assert_called_once_with()
 
         def test_unknown_action_is_a_noop(self) -> None:

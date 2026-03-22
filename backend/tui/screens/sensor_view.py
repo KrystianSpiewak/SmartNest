@@ -5,15 +5,19 @@ Aggregated sensor data display with 24-hour statistics.
 
 from __future__ import annotations
 
+import csv
+import time
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    import httpx
     from rich.console import Console
 
 
@@ -44,6 +48,12 @@ class SensorViewScreen:
         self.http_client = http_client
         self.sensor_data: list[dict[str, Any]] = []
         self.sensor_stats: dict[str, Any] = {}
+        self._sensor_data_last_fetch = 0.0
+        self._sensor_data_last_success = False
+        self._sensor_stats_last_fetch = 0.0
+        self._sensor_stats_last_success = False
+        self._fetch_interval_seconds = 2.0
+        self._action_status = ""
 
     def fetch_sensor_data(self) -> bool:
         """Fetch latest sensor readings from API.
@@ -51,15 +61,23 @@ class SensorViewScreen:
         Returns:
             True if successful, False on API error
         """
+        now = time.monotonic()
+        if now - self._sensor_data_last_fetch < self._fetch_interval_seconds:
+            return self._sensor_data_last_success
+
         try:
             response = self.http_client.get("/api/sensors/latest")
             response.raise_for_status()
             data = response.json()
             self.sensor_data = data.get("readings", [])
-        except Exception:
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException, ValueError):
             self.sensor_data = []
+            self._sensor_data_last_fetch = now
+            self._sensor_data_last_success = False
             return False
         else:
+            self._sensor_data_last_fetch = now
+            self._sensor_data_last_success = True
             return True
 
     def fetch_sensor_stats(self) -> bool:
@@ -68,15 +86,23 @@ class SensorViewScreen:
         Returns:
             True if successful, False on API error
         """
+        now = time.monotonic()
+        if now - self._sensor_stats_last_fetch < self._fetch_interval_seconds:
+            return self._sensor_stats_last_success
+
         try:
             response = self.http_client.get("/api/sensors/stats/24h")
             response.raise_for_status()
             data = response.json()
             self.sensor_stats = data.get("stats", {})
-        except Exception:
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException, ValueError):
             self.sensor_stats = {}
+            self._sensor_stats_last_fetch = now
+            self._sensor_stats_last_success = False
             return False
         else:
+            self._sensor_stats_last_fetch = now
+            self._sensor_stats_last_success = True
             return True
 
     def render(self) -> None:
@@ -125,6 +151,8 @@ class SensorViewScreen:
         stats_success = self.fetch_sensor_stats()
 
         return Group(
+            self._render_header(),
+            Text(),  # Blank line
             self._render_readings_table(data_success),
             Text(),  # Blank line
             self._render_statistics(stats_success),
@@ -273,6 +301,10 @@ class SensorViewScreen:
         instructions.append("[E]", style="bold blue")
         instructions.append(" Export to CSV")
 
+        if self._action_status:
+            instructions.append("\nStatus: ", style="dim")
+            instructions.append(self._action_status, style="bold cyan")
+
         return Panel(
             instructions,
             title="[bold yellow]ACTIONS[/bold yellow]",
@@ -287,15 +319,100 @@ class SensorViewScreen:
             Rich Text with menu options
         """
         menu = Text()
-        menu.append("[F1]", style="bold blue")
+        menu.append("[1]", style="bold blue")
         menu.append(" Dashboard  ")
-        menu.append("[F2]", style="bold blue")
-        menu.append(" Settings  ")
-        menu.append("[F3]", style="bold blue")
+        menu.append("[2]", style="bold blue")
         menu.append(" Devices  ")
-        menu.append("[F4]", style="bold blue")
+        menu.append("[3]", style="bold blue")
+        menu.append(" Settings  ")
+        menu.append("[4]", style="bold blue")
         menu.append(" Sensors  ")
+        menu.append("[5]", style="bold blue")
+        menu.append(" Reports  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 
         return menu
+
+    def refresh_now(self) -> bool:
+        """Force refresh of both sensor readings and statistics.
+
+        Returns:
+            True if both data fetches succeed, False otherwise.
+        """
+        self._sensor_data_last_fetch = 0.0
+        self._sensor_stats_last_fetch = 0.0
+        data_ok = self.fetch_sensor_data()
+        stats_ok = self.fetch_sensor_stats()
+        self._action_status = "Refreshed" if data_ok and stats_ok else "Refresh failed"
+        return data_ok and stats_ok
+
+    def export_csv(self) -> str | None:
+        """Export current sensor readings and statistics to a CSV file.
+
+        Returns:
+            Exported file path string on success, otherwise None.
+        """
+        # Ensure export has fresh data without requiring another render cycle.
+        self.refresh_now()
+
+        reports_dir = Path("reports")
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_path = reports_dir / f"sensor_export_{timestamp}.csv"
+
+        try:
+            with export_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(
+                    [
+                        "record_type",
+                        "name",
+                        "sensor_type",
+                        "value",
+                        "unit",
+                        "timestamp",
+                        "min",
+                        "max",
+                        "average",
+                        "count",
+                    ]
+                )
+
+                for reading in self.sensor_data:
+                    writer.writerow(
+                        [
+                            "reading",
+                            reading.get("device_name", ""),
+                            reading.get("sensor_type", ""),
+                            reading.get("value", ""),
+                            reading.get("unit", ""),
+                            reading.get("timestamp", ""),
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]
+                    )
+
+                for sensor_name, stats in self.sensor_stats.items():
+                    writer.writerow(
+                        [
+                            "stat",
+                            sensor_name,
+                            "",
+                            "",
+                            stats.get("unit", ""),
+                            "",
+                            stats.get("min", ""),
+                            stats.get("max", ""),
+                            stats.get("average", ""),
+                            stats.get("count", ""),
+                        ]
+                    )
+        except OSError:
+            self._action_status = "Export failed"
+            return None
+
+        self._action_status = f"Exported: {export_path}"
+        return str(export_path)

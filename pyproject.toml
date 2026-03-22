@@ -48,6 +48,8 @@ ignore = [
 "backend/api/routes/auth.py" = ["TC001"]  # UserResponse needed at runtime for FastAPI OpenAPI schema
 "backend/api/routes/devices.py" = ["TC001"]  # UserResponse needed at runtime for Depends type annotation
 "backend/api/routes/users.py" = ["TC001"]  # UserResponse needed at runtime for response_model + Depends
+"backend/api/routes/reports.py" = ["TC001"]  # UserResponse needed at runtime for Depends type annotation
+"backend/api/routes/sensors.py" = ["TC001"]  # UserResponse needed at runtime for Depends type annotation
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10

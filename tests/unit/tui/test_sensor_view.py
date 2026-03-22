@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -11,6 +12,9 @@ from rich.panel import Panel
 from rich.text import Text
 
 from backend.tui.screens.sensor_view import SensorViewScreen
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -94,6 +98,20 @@ class TestFetchSensorData:
         assert success is False
         assert sensor_view_screen.sensor_data == []
 
+    def test_fetch_sensor_data_uses_cached_result_within_interval(
+        self, sensor_view_screen: SensorViewScreen, mock_http_client: MagicMock
+    ) -> None:
+        """fetch_sensor_data() returns cached status when called again within throttle window."""
+        sensor_view_screen._sensor_data_last_fetch = 100.0
+        sensor_view_screen._sensor_data_last_success = True
+        sensor_view_screen._fetch_interval_seconds = 2.0
+
+        with patch("backend.tui.screens.sensor_view.time.monotonic", return_value=101.0):
+            success = sensor_view_screen.fetch_sensor_data()
+
+        assert success is True
+        mock_http_client.get.assert_not_called()
+
 
 class TestFetchSensorStats:
     """Test fetch_sensor_stats method."""
@@ -141,6 +159,20 @@ class TestFetchSensorStats:
         # Assert
         assert success is False
         assert sensor_view_screen.sensor_stats == {}
+
+    def test_fetch_sensor_stats_uses_cached_result_within_interval(
+        self, sensor_view_screen: SensorViewScreen, mock_http_client: MagicMock
+    ) -> None:
+        """fetch_sensor_stats() returns cached status when called again within throttle window."""
+        sensor_view_screen._sensor_stats_last_fetch = 100.0
+        sensor_view_screen._sensor_stats_last_success = True
+        sensor_view_screen._fetch_interval_seconds = 2.0
+
+        with patch("backend.tui.screens.sensor_view.time.monotonic", return_value=101.0):
+            success = sensor_view_screen.fetch_sensor_stats()
+
+        assert success is True
+        mock_http_client.get.assert_not_called()
 
 
 class TestRenderMethods:
@@ -225,6 +257,14 @@ class TestRenderMethods:
 
     def test_render_instructions(self, sensor_view_screen: SensorViewScreen) -> None:
         """Test _render_instructions returns Panel."""
+        instructions = sensor_view_screen._render_instructions()
+        assert isinstance(instructions, Panel)
+
+    def test_render_instructions_with_action_status(
+        self, sensor_view_screen: SensorViewScreen
+    ) -> None:
+        """_render_instructions includes status text when action status exists."""
+        sensor_view_screen._action_status = "Exported"
         instructions = sensor_view_screen._render_instructions()
         assert isinstance(instructions, Panel)
 
@@ -322,3 +362,70 @@ class TestRender:
 
         # Assert console.print was called
         assert mock_console.print.call_count >= 5
+
+
+class TestActions:
+    """Test sensor action methods."""
+
+    def test_refresh_now_success(self, sensor_view_screen: SensorViewScreen) -> None:
+        """refresh_now() forces both fetches and updates success status."""
+        sensor_view_screen._sensor_data_last_fetch = 123.0
+        sensor_view_screen._sensor_stats_last_fetch = 456.0
+        sensor_view_screen.fetch_sensor_data = MagicMock(return_value=True)  # type: ignore[method-assign]
+        sensor_view_screen.fetch_sensor_stats = MagicMock(return_value=True)  # type: ignore[method-assign]
+
+        result = sensor_view_screen.refresh_now()
+
+        assert result is True
+        assert sensor_view_screen._sensor_data_last_fetch == 0.0
+        assert sensor_view_screen._sensor_stats_last_fetch == 0.0
+        assert sensor_view_screen._action_status == "Refreshed"
+
+    def test_refresh_now_failure(self, sensor_view_screen: SensorViewScreen) -> None:
+        """refresh_now() reports failure when any fetch fails."""
+        sensor_view_screen.fetch_sensor_data = MagicMock(return_value=False)  # type: ignore[method-assign]
+        sensor_view_screen.fetch_sensor_stats = MagicMock(return_value=True)  # type: ignore[method-assign]
+
+        result = sensor_view_screen.refresh_now()
+
+        assert result is False
+        assert sensor_view_screen._action_status == "Refresh failed"
+
+    def test_export_csv_success(
+        self,
+        sensor_view_screen: SensorViewScreen,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """export_csv() writes report file and stores success status."""
+        sensor_view_screen.sensor_data = [
+            {
+                "device_name": "Temp 1",
+                "sensor_type": "temperature",
+                "value": 21.5,
+                "unit": "C",
+                "timestamp": "2026-02-26 12:30:45",
+            }
+        ]
+        sensor_view_screen.sensor_stats = {
+            "Temp 1": {"min": 20.1, "max": 22.3, "average": 21.0, "count": 5, "unit": "C"}
+        }
+        sensor_view_screen.refresh_now = MagicMock(return_value=True)  # type: ignore[method-assign]
+        monkeypatch.chdir(tmp_path)
+
+        result = sensor_view_screen.export_csv()
+
+        assert result is not None
+        assert "sensor_export_" in result
+        assert (tmp_path / "reports").exists()
+        assert sensor_view_screen._action_status.startswith("Exported:")
+
+    def test_export_csv_os_error(self, sensor_view_screen: SensorViewScreen) -> None:
+        """export_csv() sets failure status and returns None when writing fails."""
+        sensor_view_screen.refresh_now = MagicMock(return_value=True)  # type: ignore[method-assign]
+
+        with patch("backend.tui.screens.sensor_view.Path.open", side_effect=OSError):
+            result = sensor_view_screen.export_csv()
+
+        assert result is None
+        assert sensor_view_screen._action_status == "Export failed"

@@ -14,6 +14,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+_TIMESTAMP_WITH_TIME_MIN_LENGTH = 19
+
 if TYPE_CHECKING:
     from rich.console import Console
 
@@ -143,6 +145,14 @@ class DeviceListScreen:
         """
         self.search_query = query
 
+    def prompt_search(self) -> None:
+        """Prompt for search query outside live render and update filter text.
+
+        Empty input clears search.
+        """
+        query = self.console.input("[bold]Search devices (blank to clear):[/bold] ")
+        self.set_search(query.strip())
+
     def render(self) -> None:
         """Render the device list screen.
 
@@ -188,6 +198,8 @@ class DeviceListScreen:
         success = self.fetch_devices()
 
         return Group(
+            self._render_header(),
+            Text(),  # Blank line
             self._render_filter_bar(),
             Text(),  # Blank line
             self._render_device_table(success),
@@ -275,9 +287,22 @@ class DeviceListScreen:
             device_type = str(device.get("device_type", "unknown"))
             device_type_display = device_type.replace("_", " ").title()
 
-            # Format last_seen (show just time if available)
-            last_seen = device.get("last_seen_at")
-            last_seen_display = str(last_seen)[11:19] if last_seen else "Never"  # HH:MM:SS
+            # Format last seen with fallbacks used by API/device registry payloads.
+            last_seen = (
+                device.get("last_seen_at")
+                or device.get("updated_at")
+                or device.get("last_seen")
+                or device.get("created_at")
+            )
+            if last_seen:
+                last_seen_text = str(last_seen)
+                last_seen_display = (
+                    last_seen_text[11:19]
+                    if len(last_seen_text) >= _TIMESTAMP_WITH_TIME_MIN_LENGTH
+                    else last_seen_text
+                )
+            else:
+                last_seen_display = "Never"
 
             table.add_row(
                 str(device.get("id") or device.get("device_id") or ""),
@@ -335,6 +360,10 @@ class DeviceListScreen:
         menu.append(" Devices  ")
         menu.append("[3]", style="bold blue")
         menu.append(" Settings  ")
+        menu.append("[4]", style="bold blue")
+        menu.append(" Sensors  ")
+        menu.append("[5]", style="bold blue")
+        menu.append(" Reports  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 

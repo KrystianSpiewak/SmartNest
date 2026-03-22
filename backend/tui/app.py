@@ -28,6 +28,7 @@ from backend.mqtt.config import MQTTConfig
 from backend.tui.screens.dashboard import DashboardScreen
 from backend.tui.screens.device_detail import DeviceDetailScreen
 from backend.tui.screens.device_list import DeviceListScreen
+from backend.tui.screens.reports import ReportsScreen
 from backend.tui.screens.sensor_view import SensorViewScreen
 from backend.tui.screens.settings import SettingsScreen
 
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 _HTTP_STATUS_UNAUTHORIZED = 401
+_SECONDS_PER_MINUTE = 60
 
 
 class ReauthHttpClient(httpx.Client):
@@ -149,6 +151,7 @@ class SmartNestTUI:
         self.device_list = DeviceListScreen(self.console, self.http_client)
         self.device_detail = DeviceDetailScreen(self.console, self.http_client)
         self.sensor_view = SensorViewScreen(self.console, self.http_client)
+        self.reports = ReportsScreen(self.console, self.http_client)
         self.settings = SettingsScreen(self.console, self.http_client)
 
         # Current screen tracking
@@ -168,6 +171,10 @@ class SmartNestTUI:
         self._pt_input: Input | None = None
 
         self._pending_action: str | None = None
+        self._dashboard_summary_cache: dict[str, Any] | None = None
+        self._dashboard_summary_last_fetch = 0.0
+        self._dashboard_summary_ttl_seconds = 2.0
+        self._mqtt_connected_since = 0.0
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_sigint)
@@ -260,6 +267,42 @@ class SmartNestTUI:
                 error=str(e),
             )
             return None
+
+    def _fetch_dashboard_summary(self, force: bool = False) -> dict[str, Any] | None:
+        """Fetch dashboard summary from API with lightweight caching.
+
+        Args:
+            force: When True, bypasses cache and fetches immediately.
+
+        Returns:
+            Dashboard summary payload, cached payload, or None on error.
+        """
+        now = time.monotonic()
+        if (
+            not force
+            and self._dashboard_summary_cache is not None
+            and now - self._dashboard_summary_last_fetch < self._dashboard_summary_ttl_seconds
+        ):
+            return self._dashboard_summary_cache
+
+        try:
+            response = self.http_client.get("/api/reports/dashboard-summary")
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, dict):
+                self._dashboard_summary_cache = data
+                self._dashboard_summary_last_fetch = now
+                return data
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException, ValueError) as e:
+            log_with_code(
+                logger,
+                "warning",
+                MessageCode.TUI_API_ERROR,
+                error=str(e),
+            )
+            return self._dashboard_summary_cache
+        else:
+            return self._dashboard_summary_cache
 
     def _authenticate_startup(self) -> bool:
         """Authenticate TUI user and configure API bearer token.
@@ -434,6 +477,12 @@ class SmartNestTUI:
         # Connect to MQTT broker
         self.mqtt_client.connect()
         log_with_code(logger, "info", MessageCode.TUI_MQTT_CONNECTED)
+        self._mqtt_connected_since = time.monotonic()
+        self.system_status = {
+            "connected": True,
+            "status": "online",
+            "uptime": "0s",
+        }
 
         # Subscribe to system status updates
         self.mqtt_client.subscribe("smartnest/system/status")
@@ -441,9 +490,14 @@ class SmartNestTUI:
 
         # Fetch device count from API
         device_count = self._fetch_device_count()
+        dashboard_summary = self._fetch_dashboard_summary(force=True)
 
         # Render dashboard with device count
-        self.dashboard.render(device_count=device_count)
+        self.dashboard.render(
+            device_count=device_count,
+            system_status=self.system_status,
+            summary=dashboard_summary,
+        )
 
     def shutdown(self) -> None:
         """Perform graceful shutdown.
@@ -480,11 +534,26 @@ class SmartNestTUI:
             return self.device_list.render_live()
         if self.current_screen == "device_detail":
             return self.device_detail.render_live()
+        if self.current_screen == "sensors":
+            return self.sensor_view.render_live()
+        if self.current_screen == "reports":
+            return self.reports.render_live()
         if self.current_screen == "settings":
             return self.settings.render_live()
+        mqtt_status = dict(self.system_status)
+        if mqtt_status.get("connected"):
+            uptime_seconds = max(0, int(time.monotonic() - self._mqtt_connected_since))
+            if uptime_seconds < _SECONDS_PER_MINUTE:
+                mqtt_status["uptime"] = f"{uptime_seconds}s"
+            else:
+                minutes, seconds = divmod(uptime_seconds, _SECONDS_PER_MINUTE)
+                mqtt_status["uptime"] = f"{minutes}m {seconds}s"
+        dashboard_summary = self._fetch_dashboard_summary()
         # Default: dashboard
         return self.dashboard.render_live(
-            device_count=device_count, system_status=self.system_status
+            device_count=device_count,
+            system_status=mqtt_status,
+            summary=dashboard_summary,
         )
 
     def _handle_navigation_key(self, key: str) -> bool:
@@ -505,6 +574,12 @@ class SmartNestTUI:
         if key == "3":
             self.current_screen = "settings"
             return True
+        if key == "4":
+            self.current_screen = "sensors"
+            return True
+        if key == "5":
+            self.current_screen = "reports"
+            return True
         return False
 
     def _handle_devices_key(self, key_lower: str) -> bool:
@@ -522,11 +597,45 @@ class SmartNestTUI:
             "w": "switches",
             "a": "all",
         }
+        if key_lower == "/":
+            self._pending_action = "search_devices"
+            return True
         filter_type = filters.get(key_lower)
         if filter_type is None:
             return False
         self.device_list.set_filter(filter_type)
         return True
+
+    def _handle_sensor_key(self, key_lower: str) -> bool:
+        """Handle sensor screen action keys.
+
+        Args:
+            key_lower: Lower-cased key input.
+
+        Returns:
+            True if key was handled, False otherwise.
+        """
+        if key_lower == "r":
+            self.sensor_view.refresh_now()
+            return True
+        if key_lower == "e":
+            self.sensor_view.export_csv()
+            return True
+        return False
+
+    def _handle_reports_key(self, key_lower: str) -> bool:
+        """Handle reports screen action keys.
+
+        Args:
+            key_lower: Lower-cased key input.
+
+        Returns:
+            True if key was handled, False otherwise.
+        """
+        if key_lower == "r":
+            self.reports.refresh_now()
+            return True
+        return False
 
     def _handle_settings_key(self, key_lower: str) -> bool:
         """Handle settings screen keys.
@@ -563,6 +672,12 @@ class SmartNestTUI:
         if self.current_screen == "devices":
             self._handle_devices_key(key_lower)
             return
+        if self.current_screen == "sensors":
+            self._handle_sensor_key(key_lower)
+            return
+        if self.current_screen == "reports":
+            self._handle_reports_key(key_lower)
+            return
         if self.current_screen == "settings":
             self._handle_settings_key(key_lower)
 
@@ -579,6 +694,8 @@ class SmartNestTUI:
             self.settings.prompt_add_user()
         elif action == "delete_user":
             self.settings.prompt_delete_user()
+        elif action == "search_devices":
+            self.device_list.prompt_search()
 
     def run(self) -> None:
         """Run the TUI application.

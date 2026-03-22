@@ -154,6 +154,8 @@ class DeviceDetailScreen:
 
         if success and self.device and self.device.get("device_type") == "smart_light":
             return Group(
+                self._render_header(),
+                Text(),  # Blank line
                 self._render_device_info(success),
                 Text(),  # Blank line
                 self._render_light_state(),
@@ -166,6 +168,8 @@ class DeviceDetailScreen:
             )
         else:
             return Group(
+                self._render_header(),
+                Text(),  # Blank line
                 self._render_device_info(success),
                 Text(),  # Blank line
                 self._render_instructions(),
@@ -342,6 +346,10 @@ class DeviceDetailScreen:
         menu.append(" Devices  ")
         menu.append("[3]", style="bold blue")
         menu.append(" Settings  ")
+        menu.append("[4]", style="bold blue")
+        menu.append(" Sensors  ")
+        menu.append("[5]", style="bold blue")
+        menu.append(" Reports  ")
         menu.append("[Q]", style="bold blue")
         menu.append(" Quit")
 

@@ -145,6 +145,19 @@ class TestDashboardScreenSystemStatus:
         output = string_io.getvalue()
         assert "Database" in output
 
+    def test_system_status_uses_connected_fallback_without_status_field(self) -> None:
+        """Connected fallback path renders MQTT as connected when status key is absent."""
+        string_io = StringIO()
+        console = Console(file=string_io, force_terminal=True, width=100)
+        dashboard = DashboardScreen(console)
+
+        panel = dashboard._render_system_status(mqtt_status={"connected": True, "uptime": "12s"})
+        console.print(panel)
+
+        output = string_io.getvalue()
+        assert "CONNECTED" in output
+        assert "Uptime: 12s" in output
+
 
 class TestDashboardScreenDeviceSummary:
     """Tests for _render_device_summary() method."""
@@ -210,6 +223,20 @@ class TestDashboardScreenRecentActivity:
         output = string_io.getvalue()
         assert "No recent activity" in output or "activity" in output.lower()
 
+    def test_recent_activity_renders_summary_entries(self) -> None:
+        """_render_recent_activity() renders provided summary activity lines."""
+        string_io = StringIO()
+        console = Console(file=string_io, force_terminal=True, width=100)
+        dashboard = DashboardScreen(console)
+
+        panel = dashboard._render_recent_activity(
+            summary={"recent_activity": ["Kitchen Temp: temperature=22.1 C @ now"]}
+        )
+        console.print(panel)
+
+        output = string_io.getvalue()
+        assert "Kitchen Temp" in output
+
 
 class TestDashboardScreenAlerts:
     """Tests for _render_alerts() method."""
@@ -234,6 +261,18 @@ class TestDashboardScreenAlerts:
 
         output = string_io.getvalue()
         assert "No alerts" in output or "alerts" in output.lower()
+
+    def test_alerts_renders_summary_alerts(self) -> None:
+        """_render_alerts() renders provided alert messages."""
+        string_io = StringIO()
+        console = Console(file=string_io, force_terminal=True, width=100)
+        dashboard = DashboardScreen(console)
+
+        panel = dashboard._render_alerts(summary={"alerts": ["1 device(s) offline"]})
+        console.print(panel)
+
+        output = string_io.getvalue()
+        assert "1 device(s) offline" in output
 
 
 class TestDashboardScreenMenu:
@@ -274,5 +313,5 @@ class TestDashboardScreenMenu:
 
         output = string_io.getvalue()
         # Check for key letters (may be styled, so just check presence)
-        for option in ["Dashboard", "Devices", "Settings", "Quit"]:
+        for option in ["Dashboard", "Devices", "Settings", "Sensors", "Reports", "Quit"]:
             assert option in output
