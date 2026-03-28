@@ -55,13 +55,11 @@ Quick reference for SmartNest project documentation and configuration.
 
 ## Quality Metrics (Current)
 
-- **Test Coverage:** 100% statement and branch coverage (1178 statements, 146 branches)
-- **Test Count:** 547 tests (534 unit + 13 integration)
-- **Mutation Testing:** 97.5% kill rate (1245/1277 testable mutants)
-  - *Note: 103 mutants in backend/api show "no tests" (integration-only, see [mutation_testing.md](mutation_testing.md))*
-- **Linting:** 100% passing (ruff, 72 files)
-- **Type Safety:** mypy strict mode with 0 errors
-- **Test Runtime:** ~40 seconds for full suite
+- **Test Coverage:** 100% maintained
+- **Test Count:** 1033 tests - all passing
+- **Linting:** ruff checks passing
+- **Type Safety:** mypy strict mode passing
+- **Validation Gate:** `npm run validate` passing
 
 ### Tests
 - [tests/unit/devices/](../tests/unit/devices/) - Device module unit tests
