@@ -21,6 +21,7 @@ from prompt_toolkit.input import create_input
 from rich.console import Console
 from rich.live import Live
 
+from backend.auth.client import login_and_get_access_token, set_bearer_token
 from backend.logging.catalog import MessageCode
 from backend.logging.utils import log_with_code
 from backend.mqtt.client import SmartNestMQTTClient
@@ -333,12 +334,7 @@ class SmartNestTUI:
             return False
 
         try:
-            response = self.http_client.post(
-                "/api/auth/login",
-                json={"username": username, "password": password},
-            )
-            response.raise_for_status()
-            token = response.json().get("access_token")
+            token = login_and_get_access_token(self.http_client, username, password)
         except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException) as e:
             log_with_code(
                 logger,
@@ -359,7 +355,7 @@ class SmartNestTUI:
             self.console.print("[bold red]Login failed. Please check credentials.[/bold red]")
             return False
 
-        self.http_client.headers.update({"Authorization": f"Bearer {token}"})
+        set_bearer_token(self.http_client, token)
         self.console.print(f"[bold green]Logged in as {username}[/bold green]")
         return True
 
@@ -369,22 +365,18 @@ class SmartNestTUI:
             return False
 
         try:
-            response = self.http_client.post(
-                "/api/auth/login",
-                json={
-                    "username": self._auth_username,
-                    "password": self._auth_password,
-                },
+            token = login_and_get_access_token(
+                self.http_client,
+                self._auth_username,
+                self._auth_password,
             )
-            response.raise_for_status()
-            token = response.json().get("access_token")
         except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException):
             return False
 
         if not token:
             return False
 
-        self.http_client.headers.update({"Authorization": f"Bearer {token}"})
+        set_bearer_token(self.http_client, token)
         log_with_code(
             logger,
             "info",

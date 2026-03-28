@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 import httpx
 from dotenv import load_dotenv
 
+from backend.auth.client import login_and_get_access_token, set_bearer_token
 from backend.devices.mock_light import MockSmartLight
 from backend.devices.mock_motion_sensor import MockMotionSensor
 from backend.devices.mock_temperature_sensor import MockTemperatureSensor
@@ -150,24 +151,20 @@ class DeviceSimulationRunner:
     def _authenticate(self) -> bool:
         """Authenticate with backend API and set bearer token header."""
         try:
-            response = self._http.post(
-                "/api/auth/login",
-                json={
-                    "username": self._config.username,
-                    "password": self._config.password,
-                },
+            token = login_and_get_access_token(
+                self._http,
+                self._config.username,
+                self._config.password,
             )
-            response.raise_for_status()
-        except httpx.HTTPError:
+        except (httpx.HTTPError, ValueError):
             logger.exception("simulation_auth_failed", username=self._config.username)
             return False
 
-        token = str(response.json().get("access_token", "")).strip()
         if not token:
             logger.error("simulation_auth_missing_token")
             return False
 
-        self._http.headers["Authorization"] = f"Bearer {token}"
+        set_bearer_token(self._http, token)
         logger.info("simulation_auth_success", username=self._config.username)
         return True
 
