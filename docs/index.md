@@ -29,6 +29,7 @@ Quick reference for SmartNest project documentation and configuration.
 
 ### Backend Configuration
 - [backend/config.py](../backend/config.py) - Application settings (AppSettings, pydantic-settings)
+- [backend/auth/client.py](../backend/auth/client.py) - Shared runtime auth helpers (`login_and_get_access_token`, `set_bearer_token`)
 - [.env.example](../.env.example) - Environment variable template (copy to .env)
 
 ### Backend Logging Module
@@ -50,13 +51,16 @@ Quick reference for SmartNest project documentation and configuration.
 - [device_implementation_guide.md](device_implementation_guide.md) - How to create new device types using BaseDevice
 - [discovery_protocol.md](discovery_protocol.md) - SmartNest device discovery protocol specification
 
+Reusable Functionality Canonical Reference:
+- [architecture.md](architecture.md#shared-components) - Single source of truth for shared runtime components
+
 ### Project Planning
 - [timeline_optimizations.md](timeline_optimizations.md) - Timeline optimization analysis, 3-week buffer from continuous quality practices
 
 ## Quality Metrics (Current)
 
 - **Test Coverage:** 100% maintained
-- **Test Count:** 1040 tests
+- **Test Count:** 1048 tests
 - **Linting:** ruff checks passing
 - **Type Safety:** mypy strict mode passing
 - **Validation Gate:** `npm run validate` passing
@@ -260,5 +264,5 @@ Primary quality configuration is maintained in:
 
 ---
 
-**Last Updated:** February 26, 2026 (Post-TUI Implementation - Week 7)  
+**Last Updated:** March 28, 2026 (Week 11 DRY implementation update)  
 **Project:** SmartNest Home Automation Management System

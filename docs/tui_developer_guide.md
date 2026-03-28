@@ -64,6 +64,10 @@ class SmartNestTUI:
 - **Stateless Screens:** Screens don't hold persistent state beyond current data fetch
 - **Graceful Shutdown:** Signal handlers ensure clean MQTT/HTTP disconnection
 
+Reusable runtime component catalog (canonical):
+- See [architecture.md](architecture.md#shared-components) for shared component definitions,
+  including runtime auth helper usage.
+
 ---
 
 ## Screen Implementation Patterns

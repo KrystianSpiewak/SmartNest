@@ -491,6 +491,9 @@ graph TD
 
 ### Shared Components
 
+This section is the canonical catalog for shared runtime components.
+Other docs should reference this section instead of repeating component details.
+
 **1. SmartNestMQTTClient (MQTT Wrapper)**
 - Used by: TUI, Backend API, Mock Devices
 - Provides: Connection management, topic handlers, auto-reconnection
@@ -505,6 +508,13 @@ graph TD
 - Used by: All components
 - Provides: Correlation IDs, message catalog, structured context
 - Library: structlog with custom processors
+
+**4. Runtime Auth Client Helpers (`backend/auth/client.py`)**
+- Used by: TUI runtime client, device simulation runner
+- Provides: shared login request flow, access-token extraction, bearer header update
+- Public helpers: `login_and_get_access_token()`, `set_bearer_token()`
+- DRY rule: runtime clients should call this shared helper instead of re-implementing
+    `/api/auth/login` request and `Authorization` header wiring
 
 ---
 
