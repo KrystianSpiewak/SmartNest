@@ -6,9 +6,11 @@ protected endpoint access, and role-based access control.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, Mock, patch
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -145,6 +147,29 @@ class TestTokenUsage:
             response = client.get(
                 "/api/auth/me",
                 headers=_auth_header("invalid.jwt.token"),
+            )
+
+        assert response.status_code == 401
+
+    def test_get_me_with_expired_token_returns_401(self, auth_client: TestClient) -> None:
+        """GET /api/auth/me with expired token returns 401."""
+        expired_payload = {
+            "sub": "1",
+            "username": "expired-user",
+            "role": "user",
+            "iat": datetime.now(UTC) - timedelta(minutes=30),
+            "exp": datetime.now(UTC) - timedelta(minutes=15),
+        }
+        expired_token = jwt.encode(
+            expired_payload,
+            "test-secret-key-for-integration-tests",
+            algorithm="HS256",
+        )
+
+        with auth_client as client:
+            response = client.get(
+                "/api/auth/me",
+                headers=_auth_header(expired_token),
             )
 
         assert response.status_code == 401
@@ -321,6 +346,106 @@ class TestRoleBasedAccess:
             response = client.delete(
                 f"/api/users/{created_user_id}",
                 headers=_auth_header(user_token),
+            )
+
+        assert response.status_code == 403
+
+    def test_readonly_user_cannot_update_device(self, auth_client: TestClient) -> None:
+        """Readonly role cannot access PUT /api/devices/{device_id} (403)."""
+        with auth_client as client:
+            # Create readonly user and device via admin
+            admin_result = _login(client, "testadmin", "adminpass123")
+            admin_token = admin_result["json"]["access_token"]
+
+            create_user_response = client.post(
+                "/api/users",
+                json={
+                    "username": "readonlyupdate",
+                    "email": "readonlyupdate@test.com",
+                    "password": "password123",
+                    "role": "readonly",
+                },
+                headers=_auth_header(admin_token),
+            )
+            assert create_user_response.status_code == 201
+
+            create_device_response = client.post(
+                "/api/devices",
+                json={
+                    "id": "readonly-update-001",
+                    "friendly_name": "Readonly Update Device",
+                    "device_type": "light",
+                    "mqtt_topic": "smartnest/device/readonly-update-001/state",
+                    "manufacturer": "SmartNest",
+                    "model": "R2",
+                    "firmware_version": "1.0.0",
+                    "capabilities": ["power"],
+                },
+                headers=_auth_header(admin_token),
+            )
+            assert create_device_response.status_code == 201
+
+            readonly_result = _login(client, "readonlyupdate", "password123")
+            readonly_token = readonly_result["json"]["access_token"]
+
+            response = client.put(
+                "/api/devices/readonly-update-001",
+                json={
+                    "id": "readonly-update-001",
+                    "friendly_name": "Readonly Update Attempt",
+                    "device_type": "light",
+                    "mqtt_topic": "smartnest/device/readonly-update-001/state",
+                    "manufacturer": "SmartNest",
+                    "model": "R2",
+                    "firmware_version": "1.0.1",
+                    "capabilities": ["power"],
+                },
+                headers=_auth_header(readonly_token),
+            )
+
+        assert response.status_code == 403
+
+    def test_readonly_user_cannot_delete_device(self, auth_client: TestClient) -> None:
+        """Readonly role cannot access DELETE /api/devices/{device_id} (403)."""
+        with auth_client as client:
+            # Create readonly user and device via admin
+            admin_result = _login(client, "testadmin", "adminpass123")
+            admin_token = admin_result["json"]["access_token"]
+
+            create_user_response = client.post(
+                "/api/users",
+                json={
+                    "username": "readonlydelete",
+                    "email": "readonlydelete@test.com",
+                    "password": "password123",
+                    "role": "readonly",
+                },
+                headers=_auth_header(admin_token),
+            )
+            assert create_user_response.status_code == 201
+
+            create_device_response = client.post(
+                "/api/devices",
+                json={
+                    "id": "readonly-delete-001",
+                    "friendly_name": "Readonly Delete Device",
+                    "device_type": "light",
+                    "mqtt_topic": "smartnest/device/readonly-delete-001/state",
+                    "manufacturer": "SmartNest",
+                    "model": "R3",
+                    "firmware_version": "1.0.0",
+                    "capabilities": ["power"],
+                },
+                headers=_auth_header(admin_token),
+            )
+            assert create_device_response.status_code == 201
+
+            readonly_result = _login(client, "readonlydelete", "password123")
+            readonly_token = readonly_result["json"]["access_token"]
+
+            response = client.delete(
+                "/api/devices/readonly-delete-001",
+                headers=_auth_header(readonly_token),
             )
 
         assert response.status_code == 403
