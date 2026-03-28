@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
-from backend.api.deps import get_current_user, require_role
+from backend.api.deps import get_current_user, require_writer_role
 from backend.api.errors import raise_conflict, raise_not_found
 from backend.api.models.device import DeviceCreate, DeviceResponse
 from backend.api.models.user import UserResponse
@@ -109,7 +109,7 @@ async def get_device(
 @router.post("", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 async def create_device(
     device: DeviceCreate,
-    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
+    _writer: Annotated[UserResponse, Depends(require_writer_role)],
 ) -> DeviceResponse:
     """
     Register a new device.
@@ -136,7 +136,7 @@ async def create_device(
 async def update_device(
     device_id: str,
     device: DeviceCreate,
-    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
+    _writer: Annotated[UserResponse, Depends(require_writer_role)],
 ) -> DeviceResponse:
     """
     Update an existing device.
@@ -160,7 +160,7 @@ async def update_device(
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_device(
     device_id: str,
-    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
+    _writer: Annotated[UserResponse, Depends(require_writer_role)],
 ) -> None:
     """
     Delete a device.
@@ -180,7 +180,7 @@ async def delete_device(
 async def update_device_status(
     device_id: str,
     status_update: DeviceStatusUpdate,
-    _writer: Annotated[UserResponse, Depends(require_role("admin", "user"))],
+    _writer: Annotated[UserResponse, Depends(require_writer_role)],
 ) -> DeviceResponse:
     """
     Update device status (online/offline/error).

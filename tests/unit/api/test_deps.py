@@ -9,7 +9,7 @@ import jwt as pyjwt
 import pytest
 from fastapi import HTTPException
 
-from backend.api.deps import get_current_user, require_role
+from backend.api.deps import get_current_user, require_admin_role, require_role, require_writer_role
 from backend.api.models.user import UserResponse
 
 # ---------------------------------------------------------------------------
@@ -240,3 +240,43 @@ class TestRequireRole:
         checker = require_role("admin")
         result = await checker(current_user=_USER)  # type: ignore[call-arg]
         assert result is _USER
+
+
+class TestSharedGuardAliases:
+    """Tests for reusable role-guard dependency aliases."""
+
+    @pytest.mark.asyncio
+    async def test_require_writer_role_allows_user(self) -> None:
+        """require_writer_role allows user role (admin,user)."""
+        regular_user = UserResponse(
+            id=2,
+            username="bob",
+            email="bob@example.com",
+            role="user",
+            is_active=True,
+            created_at=_NOW,
+            updated_at=_NOW,
+            last_login_at=None,
+        )
+
+        result = await require_writer_role(current_user=regular_user)  # type: ignore[call-arg]
+        assert result == regular_user
+
+    @pytest.mark.asyncio
+    async def test_require_admin_role_rejects_user(self) -> None:
+        """require_admin_role rejects non-admin role."""
+        regular_user = UserResponse(
+            id=2,
+            username="bob",
+            email="bob@example.com",
+            role="user",
+            is_active=True,
+            created_at=_NOW,
+            updated_at=_NOW,
+            last_login_at=None,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin_role(current_user=regular_user)  # type: ignore[call-arg]
+
+        assert exc_info.value.status_code == 403

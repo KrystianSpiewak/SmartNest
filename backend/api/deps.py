@@ -127,3 +127,8 @@ def require_role(
         return current_user
 
     return _check_role
+
+
+# Shared guard dependencies to avoid repeating role tuples across routes.
+require_writer_role = require_role("admin", "user")
+require_admin_role = require_role("admin")
