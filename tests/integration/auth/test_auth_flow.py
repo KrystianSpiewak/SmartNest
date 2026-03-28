@@ -251,3 +251,96 @@ class TestRoleBasedAccess:
             response = client.get("/api/devices", headers=_auth_header(user_token))
 
         assert response.status_code == 200
+
+    def test_readonly_user_cannot_create_device(self, auth_client: TestClient) -> None:
+        """Readonly role cannot access POST /api/devices (403)."""
+        with auth_client as client:
+            # Create readonly user via admin
+            admin_result = _login(client, "testadmin", "adminpass123")
+            admin_token = admin_result["json"]["access_token"]
+
+            create_user_response = client.post(
+                "/api/users",
+                json={
+                    "username": "readonlyuser",
+                    "email": "readonly@test.com",
+                    "password": "password123",
+                    "role": "readonly",
+                },
+                headers=_auth_header(admin_token),
+            )
+            assert create_user_response.status_code == 201
+
+            # Login as readonly user
+            readonly_result = _login(client, "readonlyuser", "password123")
+            readonly_token = readonly_result["json"]["access_token"]
+
+            # Try to create device — should be forbidden
+            response = client.post(
+                "/api/devices",
+                json={
+                    "id": "readonly-light-001",
+                    "friendly_name": "Readonly Light",
+                    "device_type": "light",
+                    "mqtt_topic": "smartnest/device/readonly-light-001/state",
+                    "manufacturer": "SmartNest",
+                    "model": "R1",
+                    "firmware_version": "1.0.0",
+                    "capabilities": ["power"],
+                },
+                headers=_auth_header(readonly_token),
+            )
+
+        assert response.status_code == 403
+
+    def test_regular_user_cannot_delete_user(self, auth_client: TestClient) -> None:
+        """User role cannot access admin-only DELETE /api/users/{id} (403)."""
+        with auth_client as client:
+            # Create regular user via admin
+            admin_result = _login(client, "testadmin", "adminpass123")
+            admin_token = admin_result["json"]["access_token"]
+
+            create_user_response = client.post(
+                "/api/users",
+                json={
+                    "username": "nonadmin",
+                    "email": "nonadmin@test.com",
+                    "password": "password123",
+                    "role": "user",
+                },
+                headers=_auth_header(admin_token),
+            )
+            assert create_user_response.status_code == 201
+            created_user_id = create_user_response.json()["id"]
+
+            # Login as regular user
+            user_result = _login(client, "nonadmin", "password123")
+            user_token = user_result["json"]["access_token"]
+
+            # Try to delete admin-created user — should be forbidden
+            response = client.delete(
+                f"/api/users/{created_user_id}",
+                headers=_auth_header(user_token),
+            )
+
+        assert response.status_code == 403
+
+
+class TestProtectedEndpointAuthentication:
+    """Tests for unauthenticated access to protected non-device endpoints."""
+
+    def test_reports_dashboard_summary_without_token_returns_401(
+        self, auth_client: TestClient
+    ) -> None:
+        """GET /api/reports/dashboard-summary without token returns 401."""
+        with auth_client as client:
+            response = client.get("/api/reports/dashboard-summary")
+
+        assert response.status_code == 401
+
+    def test_sensors_latest_without_token_returns_401(self, auth_client: TestClient) -> None:
+        """GET /api/sensors/latest without token returns 401."""
+        with auth_client as client:
+            response = client.get("/api/sensors/latest")
+
+        assert response.status_code == 401
