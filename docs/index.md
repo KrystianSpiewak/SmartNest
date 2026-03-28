@@ -99,104 +99,9 @@ npm run validate       # Full pipeline (lint + format + typecheck + test)
 
 ## TUI Usage
 
-### Launching the TUI
+TUI launch instructions, keyboard shortcuts, screen descriptions, and troubleshooting are maintained in:
 
-```bash
-# Start backend API (required)
-npm run dev           # Terminal 1: FastAPI server on http://localhost:8000
-
-# Start MQTT broker (required)
-npm run docker:up     # HiveMQ CE on localhost:1883
-
-# Launch TUI (Terminal 2)
-npm run tui           # Start SmartNest Terminal UI
-```
-
-### Keyboard Shortcuts
-
-**Global Navigation:**
-- `F1` - Dashboard (system overview)
-- `F2` - Settings (user management)
-- `F3` - Device List (all devices)
-- `F4` - Sensor View (sensor data & stats)
-- `Q` - Quit application
-- `Ctrl+C` - Emergency exit
-
-**Device List (F3):**
-- `L` - Filter by Lights
-- `S` - Filter by Sensors
-- `W` - Filter by Switches
-- `A` - Show All devices
-- `/` - Search by name/location
-- `Enter` - Open device detail
-
-**Device Detail (Select from list):**
-- `P` - Toggle power (lights)
-- `+` / `-` - Adjust brightness ±10% (lights)
-- `↑` / `↓` - Adjust color temp ±500K (lights)
-- `R` - Refresh device state
-- `Esc` - Back to device list
-
-**Sensor View (F4):**
-- `R` - Refresh sensor data
-- `E` - Export to CSV (future)
-
-**Settings (F2):**
-- View user list with roles
-- Future: Add/remove users
-
-### Screen Descriptions
-
-**Dashboard (F1):**
-- System overview with live MQTT status
-- Device count and active sensors
-- Quick health indicators
-- Auto-refreshes at 4 FPS (250ms)
-
-**Device List (F3):**
-- Tabular listing of all devices
-- Filter by type (lights, sensors, switches)
-- Search by name or location
-- Color-coded status (online/offline)
-
-**Device Detail (Select device):**
-- Comprehensive device information
-- Real-time state display
-- Interactive controls for smart lights
-- Command feedback
-
-**Sensor View (F4):**
-- Latest readings from all sensors
-- 24-hour statistics (min, max, average)
-- Timestamp tracking
-- Auto-refresh
-
-**Settings (F2):**
-- User management interface
-- Role display (admin, user, readonly)
-- Active status indicators
-- Future: User creation and deletion
-
-### Troubleshooting TUI Issues
-
-**"API Error: Unable to fetch devices"**
-- Check backend is running: `npm run dev`
-- Verify API reachable: `curl http://localhost:8000/api/devices`
-
-**"MQTT: OFFLINE" status in dashboard**
-- Check broker is running: `npm run docker:health`
-- Restart broker: `npm run docker:down && npm run docker:up`
-
-**TUI not updating in real-time**
-- Verify MQTT connection (check logs in terminal where `npm run tui` ran)
-- Ensure devices are publishing state updates
-- Restart TUI: `Ctrl+C` then `npm run tui`
-
-**Display corruption or formatting issues / stale or duplicated output**
-- Use **Windows Terminal** or **PowerShell** for best behavior; Git Bash/mintty often shows appended or duplicated Live output.
-- Clear terminal between runs: `clear` (bash) or `cls` (PowerShell) to avoid accumulated “Shutting down…” and log lines.
-- Resize terminal to minimum 120x30 characters.
-- See [TUI Developer Guide – Terminal behavior](tui_developer_guide.md#7-terminal-behavior-and-why-automated-runs-look-different) for why automated runs don’t show the same issues.
+- [tui_developer_guide.md](tui_developer_guide.md)
 
 ## Mutation Testing
 
@@ -292,9 +197,7 @@ npm run docker:down    # Stop broker
 ```
 
 ### VS Code Tasks
-All tasks are defined in the **root** `.vscode/tasks.json` (not in SmartNest/.vscode/).
-
-Available via `Ctrl+Shift+P` → "Tasks: Run Task" or via the `run_task` tool:
+Available via `Ctrl+Shift+P` -> "Tasks: Run Task" or via the `run_task` tool:
 
 | Task Label | npm Script | Purpose |
 |---|---|---|
@@ -318,86 +221,11 @@ Available via `Ctrl+Shift+P` → "Tasks: Run Task" or via the `run_task` tool:
 
 ## Code Quality Standards
 
-### Ruff Configuration
-Configured in [pyproject.toml](../pyproject.toml):
-- **Security:** Bandit checks (S prefix)
-- **Complexity:** McCabe complexity limit (C90)
-- **Best practices:** Pylint, performance, async patterns
-- **Line length:** 100 characters
-- **Type checking:** mypy strict mode
+Primary quality configuration is maintained in:
 
-### Git Hooks
-Pre-commit hook automatically runs:
-1. `ruff check . --fix` - Auto-fix issues
-2. `ruff format .` - Format code
-3. Blocks commit if checks fail
-
-Bypass (not recommended): `git commit --no-verify`
-
-### Line Endings
-- All text files use **LF** (Unix-style)
-- Enforced by `.gitattributes`
-- Configured in `.editorconfig`
-- Cross-platform compatible
-
-## Project Structure
-
-```
-SmartNest/
-├── backend/                # Backend service
-│   ├── config.py          # Application settings (pydantic-settings)
-│   ├── app.py             # FastAPI application
-│   ├── main.py            # uvicorn entry point
-│   ├── api/               # REST API layer
-│   │   ├── routes/        # API endpoints (devices, users, sensors)
-│   │   ├── models/        # Pydantic request/response models
-│   │   └── mqtt_bridge.py # MQTT-to-Database bridge
-│   ├── database/          # Data access layer
-│   │   ├── connection.py  # Async connection manager
-│   │   ├── schema.py      # SQLite schema
-│   │   └── repositories/  # Repository pattern (devices, users)
-│   ├── mqtt/              # MQTT client module
-│   │   ├── topics.py      # Topic builder
-│   │   ├── config.py      # Connection configuration (Pydantic)
-│   │   ├── client.py      # SmartNestMQTTClient
-│   │   └── discovery.py   # Device discovery protocol
-│   ├── logging/           # Structured logging (structlog)
-│   │   ├── config.py      # configure_logging, get_logger
-│   │   ├── catalog.py     # Message catalog (MessageCode enum)
-│   │   └── utils.py       # Correlation tracking, log_with_code
-│   ├── tui/               # Terminal User Interface
-│   │   ├── app.py         # Main TUI application (SmartNestTUI)
-│   │   ├── __main__.py    # TUI entry point
-│   │   └── screens/       # Screen implementations
-│   │       ├── dashboard.py      # System overview with MQTT live updates
-│   │       ├── device_list.py    # Device listing with filtering
-│   │       ├── device_detail.py  # Device controls
-│   │       ├── sensor_view.py    # Sensor data & 24h stats
-│   │       └── settings.py       # User management
-│   ├── devices/           # Mock IoT devices
-│   │   ├── base.py        # BaseDevice abstract class
-│   │   ├── mock_light.py  # Smart light mock
-│   │   ├── mock_temperature_sensor.py
-│   │   └── mock_motion_sensor.py
-│   └── auth/              # Authentication module
-│       └── password.py    # Bcrypt password hashing
-├── tests/                 # Test suite (743 tests: 721 unit + 22 integration, 100% coverage)
-│   ├── unit/              # Unit tests (mocked dependencies)
-│   │   ├── tui/           # TUI screen tests
-│   │   ├── api/           # API routes and models tests
-│   │   ├── database/      # Database repository tests
-│   │   ├── mqtt/          # MQTT module tests
-│   │   ├── devices/       # Device module tests
-│   │   └── logging/       # Logging tests
-│   └── integration/       # Integration tests (real dependencies)
-│       ├── api/routes/    # API endpoint integration tests
-│       └── mqtt/          # MQTT bridge integration tests
-├── config/                # Configuration files
-│   └── mqtt/              # MQTT broker config (HiveMQ)
-├── docs/                  # Documentation (this directory)
-├── scripts/               # Utility scripts
-└── data/                  # Runtime data (SQLite database, logs)
-```
+- [pyproject.toml](../pyproject.toml)
+- [.gitattributes](../.gitattributes)
+- [.editorconfig](../.editorconfig)
 
 ## Quick Reference
 
