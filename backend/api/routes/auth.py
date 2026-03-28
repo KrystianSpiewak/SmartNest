@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
 from backend.api.deps import get_current_user
+from backend.api.errors import raise_unauthorized
 from backend.api.models.auth import LoginRequest, TokenResponse
 from backend.api.models.user import UserResponse
 from backend.auth.jwt import create_access_token
@@ -43,11 +44,7 @@ async def login(request: LoginRequest) -> TokenResponse:
             message=format_message(MessageCode.AUTH_LOGIN_FAILED, username=request.username),
             username=request.username,
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise_unauthorized("Invalid credentials")
 
     token = create_access_token(user.id, user.username, user.role)
     logger.info(

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 
 from backend.api.deps import get_current_user, require_role
+from backend.api.errors import map_create_exception, raise_not_found
 from backend.api.models.user import UserCreate, UserResponse
 from backend.database.repositories.user import UserRepository
 
@@ -53,17 +54,11 @@ async def create_user(
     try:
         created_user = await UserRepository.create(user)
     except Exception as e:
-        # Check for unique constraint violation
-        error_msg = str(e).lower()
-        if "unique" in error_msg or "already exists" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username or email already exists",
-            ) from e
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user",
-        ) from e
+        map_create_exception(
+            e,
+            duplicate_detail="Username or email already exists",
+            fallback_detail="Failed to create user",
+        )
     else:
         return created_user
 
@@ -84,10 +79,7 @@ async def delete_user(
     """
     success = await UserRepository.delete(user_id)
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {user_id} not found",
-        )
+        raise_not_found(f"User with id {user_id} not found")
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -109,8 +101,5 @@ async def get_user(
     """
     user = await UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {user_id} not found",
-        )
+        raise_not_found(f"User with id {user_id} not found")
     return user

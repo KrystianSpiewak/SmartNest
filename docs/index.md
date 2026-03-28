@@ -38,7 +38,7 @@ Quick reference for SmartNest project documentation and configuration.
 - [backend/logging/utils.py](../backend/logging/utils.py) - Correlation tracking and catalog-aware log helpers
 - [backend/logging/__init__.py](../backend/logging/__init__.py) - Public API (configure_logging, get_logger, MessageCode, log_with_code)
 
-### Backend Devices Module (Week 5)
+### Backend Devices Module
 - [backend/devices/base.py](../backend/devices/base.py) - BaseDevice abstract class for all mock devices
 - [backend/devices/mock_light.py](../backend/devices/mock_light.py) - MockSmartLight (event-driven controllable device)
 - [backend/devices/mock_temperature_sensor.py](../backend/devices/mock_temperature_sensor.py) - MockTemperatureSensor (time-driven periodic sensor)
@@ -50,9 +50,15 @@ Quick reference for SmartNest project documentation and configuration.
 - [tui_developer_guide.md](tui_developer_guide.md) - TUI screen implementation patterns, Rich patterns, MQTT integration, testing strategies
 - [device_implementation_guide.md](device_implementation_guide.md) - How to create new device types using BaseDevice
 - [discovery_protocol.md](discovery_protocol.md) - SmartNest device discovery protocol specification
+- [access_control_matrix.md](access_control_matrix.md) - Canonical route-role access matrix and verification checklist
+- [validation_checklist.md](validation_checklist.md) - Reusable validation quality gates and command set
 
 Reusable Functionality Canonical Reference:
 - [architecture.md](architecture.md#shared-components) - Single source of truth for shared runtime components
+
+Documentation Standards References:
+- [access_control_matrix.md](access_control_matrix.md) - Canonical endpoint authorization policy reference
+- [validation_checklist.md](validation_checklist.md) - Canonical validation command/checklist reference
 
 ### Project Planning
 - [timeline_optimizations.md](timeline_optimizations.md) - Timeline optimization analysis, 3-week buffer from continuous quality practices
@@ -264,5 +270,5 @@ Primary quality configuration is maintained in:
 
 ---
 
-**Last Updated:** March 28, 2026 (Week 11 DRY implementation update)  
+**Last Updated:** March 28, 2026  
 **Project:** SmartNest Home Automation Management System

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
 from backend.api.deps import get_current_user, require_role
+from backend.api.errors import raise_conflict, raise_not_found
 from backend.api.models.device import DeviceCreate, DeviceResponse
 from backend.api.models.user import UserResponse
 from backend.database.repositories.device import DeviceRepository
@@ -101,10 +102,7 @@ async def get_device(
     """
     device = await DeviceRepository.get_by_id(device_id)
     if not device:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Device not found: {device_id}",
-        )
+        raise_not_found(f"Device not found: {device_id}")
     return device
 
 
@@ -128,10 +126,7 @@ async def create_device(
     # Check if device already exists
     existing = await DeviceRepository.get_by_id(device.id)
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Device already exists: {device.id}",
-        )
+        raise_conflict(f"Device already exists: {device.id}")
 
     result = await DeviceRepository.create(device)
     return result
@@ -158,10 +153,7 @@ async def update_device(
     """
     updated = await DeviceRepository.update(device_id, device)
     if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Device not found: {device_id}",
-        )
+        raise_not_found(f"Device not found: {device_id}")
     return updated
 
 
@@ -181,10 +173,7 @@ async def delete_device(
     """
     deleted = await DeviceRepository.delete(device_id)
     if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Device not found: {device_id}",
-        )
+        raise_not_found(f"Device not found: {device_id}")
 
 
 @router.patch("/{device_id}/status", response_model=DeviceResponse)
@@ -209,10 +198,7 @@ async def update_device_status(
     # Update status and last_seen timestamp
     success = await DeviceRepository.update_status(device_id, status_update.status)
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Device not found: {device_id}",
-        )
+        raise_not_found(f"Device not found: {device_id}")
 
     # Fetch updated device
     device = await DeviceRepository.get_by_id(device_id)
