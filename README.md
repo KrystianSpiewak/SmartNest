@@ -9,10 +9,9 @@ This directory contains the SmartNest Home Automation Management System project.
 
 ## Project Status
 
-**Current Phase:** Phase 5 - Security & Final Integration (Week 11)  
+**Current Phase:** Security and final integration  
 **Completed:** TUI functional completion  
-**Timeline:** 12 weeks (Weeks 4-15, Jan 26 - Apr 13, 2026)  
-**Progress:** 124.25/110 hours tracked
+**Progress:** Active development
 
 ## Technology Stack
 
@@ -45,11 +44,11 @@ npm run validate       # Run all checks (lint + format + typecheck + test)
 
 ## Contributing
 
-This is a capstone project for SDEV435. For questions or issues, contact Krystian Spiewak.
+For questions or issues, contact Krystian Spiewak.
 
 ## License
 
-Educational project for Champlain College SDEV435 course.
+Private project.
 
 ## Resources
 
