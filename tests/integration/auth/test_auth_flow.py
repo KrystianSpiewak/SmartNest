@@ -469,3 +469,27 @@ class TestProtectedEndpointAuthentication:
             response = client.get("/api/sensors/latest")
 
         assert response.status_code == 401
+
+    def test_reports_dashboard_summary_with_malformed_bearer_token_returns_401(
+        self, auth_client: TestClient
+    ) -> None:
+        """Malformed bearer token must be rejected with 401."""
+        with auth_client as client:
+            response = client.get(
+                "/api/reports/dashboard-summary",
+                headers={"Authorization": "Bearer not.a.valid.token"},
+            )
+
+        assert response.status_code == 401
+
+    def test_sensors_latest_with_wrong_auth_scheme_returns_401(
+        self, auth_client: TestClient
+    ) -> None:
+        """Non-bearer Authorization scheme must be rejected with 401."""
+        with auth_client as client:
+            response = client.get(
+                "/api/sensors/latest",
+                headers={"Authorization": "Basic Zm9vOmJhcg=="},
+            )
+
+        assert response.status_code == 401

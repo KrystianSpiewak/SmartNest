@@ -241,8 +241,8 @@ class DashboardScreen:
             "",
         )
 
-        online_count = int((summary or {}).get("online_devices", 0))
-        offline_count = int((summary or {}).get("offline_devices", 0))
+        online_count = self._safe_int((summary or {}).get("online_devices"), default=0)
+        offline_count = self._safe_int((summary or {}).get("offline_devices"), default=0)
 
         # Online Devices
         table.add_row(
@@ -260,7 +260,10 @@ class DashboardScreen:
 
         table.add_row(
             "Sensor Devices:",
-            Text(str((summary or {}).get("sensor_devices", 0)), style="bold cyan"),
+            Text(
+                str(self._safe_int((summary or {}).get("sensor_devices"), default=0)),
+                style="bold cyan",
+            ),
             "",
         )
 
@@ -270,6 +273,15 @@ class DashboardScreen:
             title_align="left",
             border_style="blue",
         )
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        """Convert summary numeric fields safely, falling back for malformed values."""
+        try:
+            if value is None:
+                return default
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     def _render_recent_activity(self, summary: dict[str, Any] | None = None) -> Panel:
         """Render recent activity log panel.

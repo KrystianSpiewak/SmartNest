@@ -198,6 +198,30 @@ class TestDashboardScreenDeviceSummary:
         output = string_io.getvalue()
         assert "Offline" in output
 
+    def test_device_summary_falls_back_when_summary_values_are_malformed(self) -> None:
+        """Malformed numeric values should render as safe defaults instead of crashing."""
+        string_io = StringIO()
+        console = Console(file=string_io, force_terminal=True, width=100)
+        dashboard = DashboardScreen(console)
+
+        panel = dashboard._render_device_summary(
+            device_count=2,
+            summary={
+                "online_devices": "bad-number",
+                "offline_devices": None,
+                "sensor_devices": object(),
+            },
+        )
+        console.print(panel)
+
+        output = string_io.getvalue()
+        # Should still render summary and use 0 defaults for malformed fields.
+        assert "Total Devices" in output
+        assert "Online" in output
+        assert "Offline" in output
+        assert "Sensor Devices" in output
+        assert "0" in output
+
 
 class TestDashboardScreenRecentActivity:
     """Tests for _render_recent_activity() method."""
