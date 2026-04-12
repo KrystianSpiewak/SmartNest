@@ -174,6 +174,47 @@ class TestTokenUsage:
 
         assert response.status_code == 401
 
+    def test_get_me_with_missing_role_claim_returns_401(self, auth_client: TestClient) -> None:
+        """GET /api/auth/me rejects tokens missing required role claim."""
+        now = datetime.now(UTC)
+        malformed_payload = {
+            "sub": "1",
+            "username": "claim-user",
+            "iat": now,
+            "exp": now + timedelta(minutes=15),
+        }
+        token = jwt.encode(
+            malformed_payload,
+            "test-secret-key-for-integration-tests",
+            algorithm="HS256",
+        )
+
+        with auth_client as client:
+            response = client.get("/api/auth/me", headers=_auth_header(token))
+
+        assert response.status_code == 401
+
+    def test_get_me_with_non_numeric_sub_returns_401(self, auth_client: TestClient) -> None:
+        """GET /api/auth/me returns 401 for malformed non-numeric subject claims."""
+        now = datetime.now(UTC)
+        malformed_payload = {
+            "sub": "not-an-integer",
+            "username": "bad-sub",
+            "role": "user",
+            "iat": now,
+            "exp": now + timedelta(minutes=15),
+        }
+        token = jwt.encode(
+            malformed_payload,
+            "test-secret-key-for-integration-tests",
+            algorithm="HS256",
+        )
+
+        with auth_client as client:
+            response = client.get("/api/auth/me", headers=_auth_header(token))
+
+        assert response.status_code == 401
+
     def test_protected_device_endpoint_with_token(self, auth_client: TestClient) -> None:
         """GET /api/devices with valid token succeeds."""
         with auth_client as client:

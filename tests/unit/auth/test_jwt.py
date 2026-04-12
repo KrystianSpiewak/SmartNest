@@ -125,6 +125,21 @@ class TestCreateAccessToken:
         header = pyjwt.get_unverified_header(token)
         assert header["alg"] == "HS384"
 
+    def test_raises_when_jwt_secret_too_short(self) -> None:
+        """create_access_token rejects weak JWT signing secrets."""
+        weak_settings = AppSettings(
+            jwt_secret="too-short-secret",
+            jwt_algorithm="HS256",
+            jwt_expire_minutes=15,
+            _env_file=None,  # type: ignore[call-arg]
+        )
+
+        with (
+            patch("backend.auth.jwt.get_settings", return_value=weak_settings),
+            pytest.raises(ValueError, match="JWT secret must be at least 32 characters"),
+        ):
+            create_access_token(user_id=1, username="admin", role="admin")
+
 
 class TestDecodeAccessToken:
     """Tests for decode_access_token()."""
@@ -206,3 +221,39 @@ class TestDecodeAccessToken:
             pytest.raises(pyjwt.DecodeError),
         ):
             decode_access_token("")
+
+    def test_decode_rejects_weak_jwt_secret(self) -> None:
+        """decode_access_token fails fast when configured secret is weak."""
+        weak_settings = AppSettings(
+            jwt_secret="short-secret",
+            jwt_algorithm="HS256",
+            jwt_expire_minutes=15,
+            _env_file=None,  # type: ignore[call-arg]
+        )
+
+        with (
+            patch("backend.auth.jwt.get_settings", return_value=weak_settings),
+            pytest.raises(ValueError, match="JWT secret must be at least 32 characters"),
+        ):
+            decode_access_token("invalid-token")
+
+    def test_missing_required_claim_raises(self, jwt_settings: AppSettings) -> None:
+        """decode_access_token rejects tokens missing required access-token claims."""
+        now = datetime.now(UTC)
+        payload_missing_role = {
+            "sub": "1",
+            "username": "admin",
+            "iat": now,
+            "exp": now + timedelta(minutes=15),
+        }
+        token = pyjwt.encode(
+            payload_missing_role,
+            jwt_settings.jwt_secret,
+            algorithm=jwt_settings.jwt_algorithm,
+        )
+
+        with (
+            patch("backend.auth.jwt.get_settings", return_value=jwt_settings),
+            pytest.raises(pyjwt.MissingRequiredClaimError),
+        ):
+            decode_access_token(token)

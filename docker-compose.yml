@@ -3,7 +3,7 @@ services:
     image: hivemq/hivemq-ce:2025.5
     container_name: smartnest-mqtt
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
       - ./config/mqtt/config.xml:/opt/hivemq/conf/config.xml:ro
       - ./config/mqtt/logback-dev.xml:/opt/hivemq/conf/logback.xml:ro
@@ -16,6 +16,54 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - smartnest
+
+  backend-api:
+    profiles: ["fullstack"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartnest-api
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - SMARTNEST_LOG_LEVEL=INFO
+      - SMARTNEST_LOG_RENDERER=json
+      - SMARTNEST_HOST=0.0.0.0
+      - SMARTNEST_PORT=8000
+      - SMARTNEST_MQTT_BROKER=mqtt-broker
+      - SMARTNEST_MQTT_PORT=1883
+      - SMARTNEST_MQTT_CLIENT_ID=smartnest_api
+      - SMARTNEST_MQTT_KEEPALIVE=60
+      - SMARTNEST_MQTT_TLS_ENABLED=false
+      - SMARTNEST_MQTT_RECONNECT_MIN_DELAY=1
+      - SMARTNEST_MQTT_RECONNECT_MAX_DELAY=60
+      - SMARTNEST_ADMIN_USERNAME=${SMARTNEST_ADMIN_USERNAME:?SMARTNEST_ADMIN_USERNAME is required}
+      - SMARTNEST_ADMIN_EMAIL=${SMARTNEST_ADMIN_EMAIL:?SMARTNEST_ADMIN_EMAIL is required}
+      - SMARTNEST_ADMIN_PASSWORD=${SMARTNEST_ADMIN_PASSWORD:?SMARTNEST_ADMIN_PASSWORD is required}
+      - SMARTNEST_JWT_SECRET=${SMARTNEST_JWT_SECRET:?SMARTNEST_JWT_SECRET is required}
+      - SMARTNEST_JWT_ALGORITHM=HS256
+      - SMARTNEST_JWT_EXPIRE_MINUTES=15
+      - SMARTNEST_BCRYPT_ROUNDS=12
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      mqtt-broker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
       start_period: 20s
     restart: unless-stopped
     networks:

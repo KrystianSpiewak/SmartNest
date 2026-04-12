@@ -10,6 +10,7 @@ import contextlib
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.config import get_settings
 from backend.logging import get_logger
 
 logger = get_logger(__name__)
@@ -52,8 +53,16 @@ class MQTTConfig(BaseModel):
             )
             raise ValueError(msg)
 
-        if self.password is not None and self.username is None:
-            msg = "password requires username to be set"
+        if (self.username is None) != (self.password is None):
+            msg = "username and password must be set together"
+            raise ValueError(msg)
+
+        if self.username is not None and not self.username.strip():
+            msg = "username cannot be empty"
+            raise ValueError(msg)
+
+        if self.password is not None and not self.password.strip():
+            msg = "password cannot be empty"
             raise ValueError(msg)
 
         with contextlib.suppress(OSError, ValueError):
@@ -74,4 +83,15 @@ def get_mqtt_config() -> MQTTConfig:
     Returns:
         MQTTConfig with broker connection parameters
     """
-    return MQTTConfig()
+    settings = get_settings()
+    return MQTTConfig(
+        broker=settings.mqtt_broker,
+        port=settings.mqtt_port,
+        client_id=settings.mqtt_client_id,
+        username=settings.mqtt_username,
+        password=settings.mqtt_password,
+        keepalive=settings.mqtt_keepalive,
+        tls_enabled=settings.mqtt_tls_enabled,
+        reconnect_min_delay=settings.mqtt_reconnect_min_delay,
+        reconnect_max_delay=settings.mqtt_reconnect_max_delay,
+    )

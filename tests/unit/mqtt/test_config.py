@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from backend.mqtt.config import MQTTConfig
+from backend.config import AppSettings
+from backend.mqtt.config import MQTTConfig, get_mqtt_config
 
 
 class TestMQTTConfigDefaults:
@@ -71,10 +72,10 @@ class TestMQTTConfigCustom:
         cfg = MQTTConfig(tls_enabled=True)
         assert cfg.tls_enabled is True
 
-    def test_username_without_password(self) -> None:
-        cfg = MQTTConfig(username="admin")
-        assert cfg.username == "admin"
-        assert cfg.password is None
+    def test_username_and_password_with_spaces_are_trim_checked(self) -> None:
+        cfg = MQTTConfig(username=" admin ", password=" secret ")
+        assert cfg.username == " admin "
+        assert cfg.password == " secret "
 
 
 class TestMQTTConfigValidation:
@@ -131,8 +132,20 @@ class TestMQTTConfigValidation:
             MQTTConfig(reconnect_min_delay=120, reconnect_max_delay=60)
 
     def test_password_without_username(self) -> None:
-        with pytest.raises(ValidationError, match="password requires username"):
+        with pytest.raises(ValidationError, match="username and password must be set together"):
             MQTTConfig(password="secret")
+
+    def test_username_without_password_raises(self) -> None:
+        with pytest.raises(ValidationError, match="username and password must be set together"):
+            MQTTConfig(username="admin")
+
+    def test_blank_username_raises(self) -> None:
+        with pytest.raises(ValidationError, match="username cannot be empty"):
+            MQTTConfig(username="   ", password="secret")
+
+    def test_blank_password_raises(self) -> None:
+        with pytest.raises(ValidationError, match="password cannot be empty"):
+            MQTTConfig(username="admin", password="   ")
 
     def test_frozen_model_prevents_mutation(self) -> None:
         cfg = MQTTConfig()
@@ -150,3 +163,33 @@ class TestMQTTConfigValidation:
         assert data["broker"] == "mqtt.local"
         assert data["port"] == 8883
         assert isinstance(data, dict)
+
+
+class TestGetMQTTConfig:
+    """Tests for building MQTTConfig from application settings."""
+
+    def test_get_mqtt_config_uses_app_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        settings = AppSettings(
+            mqtt_broker="mqtt.internal",
+            mqtt_port=1884,
+            mqtt_client_id="api_service",
+            mqtt_username="svc_user",
+            mqtt_password="svc_pass",
+            mqtt_keepalive=120,
+            mqtt_tls_enabled=True,
+            mqtt_reconnect_min_delay=2,
+            mqtt_reconnect_max_delay=30,
+        )
+        monkeypatch.setattr("backend.mqtt.config.get_settings", lambda: settings)
+
+        cfg = get_mqtt_config()
+
+        assert cfg.broker == "mqtt.internal"
+        assert cfg.port == 1884
+        assert cfg.client_id == "api_service"
+        assert cfg.username == "svc_user"
+        assert cfg.password == "svc_pass"
+        assert cfg.keepalive == 120
+        assert cfg.tls_enabled is True
+        assert cfg.reconnect_min_delay == 2
+        assert cfg.reconnect_max_delay == 30

@@ -13,6 +13,15 @@ import jwt
 
 from backend.config import get_settings
 
+REQUIRED_ACCESS_TOKEN_CLAIMS = ["sub", "username", "role", "iat", "exp"]
+_MIN_JWT_SECRET_LENGTH = 32
+
+
+def _require_strong_jwt_secret(secret: str) -> None:
+    if len(secret.strip()) < _MIN_JWT_SECRET_LENGTH:
+        msg = "JWT secret must be at least 32 characters"
+        raise ValueError(msg)
+
 
 def create_access_token(user_id: int, username: str, role: str) -> str:
     """Create a signed JWT access token.
@@ -26,6 +35,7 @@ def create_access_token(user_id: int, username: str, role: str) -> str:
         Encoded JWT string.
     """
     settings = get_settings()
+    _require_strong_jwt_secret(settings.jwt_secret)
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
@@ -51,8 +61,10 @@ def decode_access_token(token: str) -> dict[str, Any]:
         jwt.InvalidTokenError: If the token is malformed or tampered.
     """
     settings = get_settings()
+    _require_strong_jwt_secret(settings.jwt_secret)
     return jwt.decode(
         token,
         settings.jwt_secret,
         algorithms=[settings.jwt_algorithm],
+        options={"require": REQUIRED_ACCESS_TOKEN_CLAIMS},
     )

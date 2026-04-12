@@ -72,6 +72,20 @@ class TestClientInit:
     ) -> None:
         mock_paho_client.reconnect_delay_set.assert_called_once_with(min_delay=1, max_delay=60)
 
+    def test_enables_tls_when_configured(self) -> None:
+        cfg = MQTTConfig(tls_enabled=True, client_id="tls_client")
+        with patch("backend.mqtt.client.mqtt.Client") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
+            SmartNestMQTTClient(cfg)
+
+        mock_instance.tls_set.assert_called_once_with()
+
+    def test_does_not_enable_tls_when_disabled(
+        self, client: SmartNestMQTTClient, mock_paho_client: MagicMock
+    ) -> None:
+        mock_paho_client.tls_set.assert_not_called()
+
     def test_sets_lwt(self, client: SmartNestMQTTClient, mock_paho_client: MagicMock) -> None:
         """LWT must be configured with correct topic, payload, QoS, and retain settings."""
         mock_paho_client.will_set.assert_called_once()

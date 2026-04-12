@@ -5,9 +5,12 @@
   "description": "SmartNest Home Automation Management System",
   "scripts": {
     "docker:up": "docker compose up -d",
+    "docker:up:stack": "docker compose --profile fullstack up -d",
     "docker:down": "docker compose down",
     "docker:restart": "docker compose restart mqtt-broker",
     "docker:logs": "docker compose logs -f mqtt-broker",
+    "docker:logs:api": "docker compose logs -f backend-api",
+    "docker:logs:stack": "docker compose logs -f mqtt-broker backend-api",
     "docker:health": "docker inspect --format={{.State.Health.Status}} smartnest-mqtt",
     "docker:clean": "docker compose down -v",
     "setup": "rm -rf .venv && python -m venv .venv && .venv\\Scripts\\python.exe -m pip install --upgrade pip && .venv\\Scripts\\python.exe -m pip install -r requirements/dev.txt",

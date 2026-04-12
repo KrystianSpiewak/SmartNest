@@ -97,6 +97,9 @@ class SmartNestMQTTClient:
             max_delay=config.reconnect_max_delay,
         )
 
+        if config.tls_enabled:
+            self._paho.tls_set()
+
         # Credentials
         if config.username is not None:
             self._paho.username_pw_set(config.username, config.password)
