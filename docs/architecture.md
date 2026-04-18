@@ -2,7 +2,7 @@
 
 Comprehensive architecture documentation for the SmartNest Home Automation Management System.
 
-**Last Updated:** February 26, 2026 (Post-TUI Implementation)
+**Last Updated:** April 12, 2026 (Security and deployment readiness)
 
 ---
 
@@ -98,12 +98,10 @@ sequenceDiagram
         TUI->>User: Update display
     end
     
-    User->>TUI: Send command (P = toggle power)
-    TUI->>API: POST /api/devices/{id}/command
-    API->>MQTT: Publish command
-    MQTT->>Device: Forward command
-    Device->>MQTT: Publish state update
-    MQTT->>TUI: Forward state
+    User->>TUI: Request device status change
+    TUI->>API: PATCH /api/devices/{device_id}/status
+    API->>DB: Persist status update
+    API-->>TUI: Updated device payload
     TUI->>User: Update display
 ```
 
@@ -133,21 +131,24 @@ sequenceDiagram
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/api/auth/login` | POST | Authenticate and issue JWT access token |
+| `/api/auth/me` | GET | Return authenticated user profile |
 | `/api/devices` | GET | List all devices |
+| `/api/devices` | POST | Register a new device |
 | `/api/devices/count` | GET | Get device count |
-| `/api/devices/{id}` | GET | Get device by ID |
-| `/api/devices/{id}` | PATCH | Update device |
-| `/api/devices/{id}` | DELETE | Delete device |
-| `/api/devices/{id}/state` | GET | Get device state |
-| `/api/devices/{id}/command` | POST | Send device command |
-| `/api/devices/bulk` | POST | Bulk device creation |
-| `/api/devices/sync-discovered` | POST | Sync discovered devices |
+| `/api/devices/{device_id}` | GET | Get device by ID |
+| `/api/devices/{device_id}/state` | GET | Get current persisted device state |
+| `/api/devices/{device_id}` | PUT | Update device |
+| `/api/devices/{device_id}` | DELETE | Delete device |
+| `/api/devices/{device_id}/command` | POST | Apply command payload to device state |
+| `/api/devices/{device_id}/status` | PATCH | Update device status |
 | `/api/users` | GET | List all users |
-| `/api/users/{id}` | GET | Get user by ID |
+| `/api/users/{user_id}` | GET | Get user by ID |
 | `/api/users` | POST | Create user |
-| `/api/users/{id}` | DELETE | Delete user |
+| `/api/users/{user_id}` | DELETE | Delete user |
 | `/api/sensors/latest` | GET | Latest sensor readings |
 | `/api/sensors/stats/24h` | GET | 24-hour sensor statistics |
+| `/api/reports/dashboard-summary` | GET | Dashboard and report summary metrics |
 
 **Key Dependencies:**
 - `fastapi` - Web framework
@@ -169,11 +170,11 @@ sequenceDiagram
 - Authentication (username/password)
 
 **Configuration:**
-- Port: 1883 (unencrypted, development)
-- Port: 8080 (Web UI, development)
-- Authentication: Enabled (admin/smartnest123)
-- Persistence: Enabled (survives restarts)
-- Max connections: Unlimited (development)
+- Port: 1883 (development listener)
+- Bind address: `0.0.0.0` (container-internal)
+- Anonymous usage statistics: disabled
+- Runtime persistence: enabled through Docker volume `mqtt-data`
+- Authentication: optional via SmartNest env config (not hardcoded in broker XML)
 
 ---
 
@@ -213,62 +214,16 @@ stateDiagram-v2
 
 **Technology:** SQLite with async access (aiosqlite)
 
-**Schema:**
+**Schema (current DDL snapshot):**
 
-```sql
--- Device Registry
-CREATE TABLE devices (
-    device_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    device_type TEXT NOT NULL,
-    mqtt_topic TEXT NOT NULL,
-    status TEXT CHECK(status IN ('online', 'offline')) NOT NULL,
-    location TEXT,
-    last_seen_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Sensor Readings (30-day retention)
-CREATE TABLE sensor_readings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id TEXT NOT NULL,
-    sensor_type TEXT NOT NULL,
-    value REAL NOT NULL,
-    unit TEXT,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (device_id) REFERENCES devices(device_id)
-);
-
--- Device State (Current)
-CREATE TABLE device_state (
-    device_id TEXT PRIMARY KEY,
-    state_json TEXT NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (device_id) REFERENCES devices(device_id)
-);
-
--- User Management
-CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    hashed_password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('admin', 'user', 'readonly')) NOT NULL,
-    is_active BOOLEAN DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- System Logs (10,000 most recent)
-CREATE TABLE system_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    level TEXT NOT NULL,
-    message TEXT NOT NULL,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    correlation_id TEXT
-);
-```
+- `devices`: `id`, `friendly_name`, `device_type`, `mqtt_topic` (unique),
+  `manufacturer`, `model`, `firmware_version`, `capabilities` (JSON text),
+  `status`, `created_at`, `updated_at`, `last_seen_at`
+- `sensor_readings`: `id`, `device_id` (FK -> devices.id), `sensor_type`,
+  `value`, `unit`, `timestamp`
+- `device_state`: `device_id` (PK/FK -> devices.id), `state` (JSON text), `updated_at`
+- `users`: `id`, `username` (unique), `email` (unique), `password_hash`,
+  `role`, `is_active`, `created_at`, `updated_at`, `last_login_at`
 
 **Relationships:**
 - Devices → Sensor Readings (1:N)
@@ -311,11 +266,9 @@ sequenceDiagram
     Backend->>Broker: Forward to MQTTBridge
     Backend->>Backend: Register in database
     
-    Note over TUI: User Control
-    TUI->>Backend: POST /devices/{id}/command
-    Backend->>Broker: PUBLISH device/{id}/command
-    Broker->>Device: Forward command
-    Device->>Device: Execute command
+    Note over TUI: User updates device status
+    TUI->>Backend: PATCH /api/devices/{device_id}/status
+    Backend->>Backend: Persist status update
     Device->>Broker: PUBLISH device/{id}/state
     Broker->>Backend: Forward to MQTTBridge
     Backend->>Backend: Update database
@@ -526,12 +479,11 @@ Other docs should reference this section instead of repeating component details.
 
 **Request Format:**
 ```json
-POST /api/devices/light_01/command HTTP/1.1
+PATCH /api/devices/light_01/status HTTP/1.1
 Content-Type: application/json
 
 {
-  "command": "set_brightness",
-  "parameters": {"brightness": 75}
+    "status": "online"
 }
 ```
 
@@ -541,9 +493,9 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-  "device_id": "light_01",
-  "success": true,
-  "timestamp": "2026-02-26T10:30:00Z"
+    "id": "light_01",
+    "status": "online",
+    "updated_at": "2026-04-12T03:43:29Z"
 }
 ```
 
@@ -615,7 +567,7 @@ sequenceDiagram
 
     User->>TUI: Enter credentials
     TUI->>API: POST /auth/login<br/>{username, password}
-    API->>DB: SELECT hashed_password
+    API->>DB: SELECT password_hash
     DB-->>API: Return hash
     API->>API: bcrypt.checkpw()
     alt Valid Credentials
@@ -655,17 +607,17 @@ sequenceDiagram
 
 | Endpoint | Avg Response Time |
 |----------|-------------------|
-| GET /devices | 5-15ms |
-| GET /devices/{id} | 2-8ms |
-| POST /devices/{id}/command | 20-40ms (includes MQTT publish) |
-| GET /sensors/stats/24h | 50-100ms (aggregation query) |
+| GET /api/devices | 5-15ms |
+| GET /api/devices/{device_id} | 2-8ms |
+| PATCH /api/devices/{device_id}/status | 8-20ms |
+| GET /api/sensors/stats/24h | 50-100ms (aggregation query) |
 
 ### Database Performance
 
-- **Connection:** Pooled async connections (aiosqlite)
-- **Queries:** Indexed on device_id, timestamp
-- **Sensor Data:** 30-day retention (auto-cleanup)
-- **System Logs:** 10,000 most recent entries (circular buffer)
+- **Connection:** Async connection-per-operation via context managers (aiosqlite)
+- **Queries:** Indexed for device and sensor lookup paths (type/status/last_seen/timestamp)
+- **Sensor Data:** Time-series records stored in `sensor_readings` (retention managed operationally)
+- **Logging:** Structured application logs handled by `structlog` pipelines
 
 ---
 

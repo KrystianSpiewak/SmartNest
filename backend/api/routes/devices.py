@@ -6,7 +6,8 @@ registration, updates, status tracking, and deletion.
 
 from __future__ import annotations
 
-from typing import Annotated
+import json
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ from backend.api.deps import get_current_user, require_writer_role
 from backend.api.errors import raise_conflict, raise_not_found
 from backend.api.models.device import DeviceCreate, DeviceResponse
 from backend.api.models.user import UserResponse
+from backend.database.connection import get_connection
 from backend.database.repositories.device import DeviceRepository
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -39,6 +41,66 @@ class DeviceStatusUpdate(BaseModel):
     """Request model for updating device status."""
 
     status: str = Field(..., min_length=1, max_length=50)
+
+
+class DeviceCommandRequest(BaseModel):
+    """Request model for sending device commands from clients."""
+
+    command: str = Field(..., min_length=1, max_length=100)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeviceCommandResponse(BaseModel):
+    """Response model for device command execution results."""
+
+    device_id: str
+    success: bool
+    state: dict[str, Any]
+
+
+def _default_state_for_device_type(device_type: str) -> dict[str, Any]:
+    """Return default state payload for known device categories."""
+    if device_type in {"smart_light", "light"}:
+        return {
+            "power": "off",
+            "brightness": 100,
+            "color_temperature": 4000,
+        }
+    return {}
+
+
+def _apply_command_to_state(
+    current_state: dict[str, Any],
+    command: str,
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply command payload to current device state."""
+    next_state = dict(current_state)
+    next_state.update(parameters)
+
+    if command == "set_power" and "power" in next_state:
+        power_value = next_state["power"]
+        if isinstance(power_value, bool):
+            next_state["power"] = "on" if power_value else "off"
+
+    next_state["last_command"] = command
+    return next_state
+
+
+async def _load_device_state(device_id: str) -> dict[str, Any] | None:
+    """Load persisted device state from database."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT state FROM device_state WHERE device_id = ?",
+            (device_id,),
+        )
+        row = await cursor.fetchone()
+
+    if not row or not row["state"]:
+        return None
+
+    loaded = json.loads(row["state"])
+    return loaded if isinstance(loaded, dict) else {}
 
 
 @router.get("", response_model=DeviceListResponse)
@@ -106,6 +168,22 @@ async def get_device(
     return device
 
 
+@router.get("/{device_id}/state")
+async def get_device_state(
+    device_id: str,
+    _current_user: Annotated[UserResponse, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Get current persisted state for a device."""
+    device = await DeviceRepository.get_by_id(device_id)
+    if not device:
+        raise_not_found(f"Device not found: {device_id}")
+
+    state = await _load_device_state(device_id)
+    if state is None:
+        return _default_state_for_device_type(device.device_type)
+    return state
+
+
 @router.post("", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 async def create_device(
     device: DeviceCreate,
@@ -130,6 +208,43 @@ async def create_device(
 
     result = await DeviceRepository.create(device)
     return result
+
+
+@router.post("/{device_id}/command", response_model=DeviceCommandResponse)
+async def send_device_command(
+    device_id: str,
+    command_request: DeviceCommandRequest,
+    _writer: Annotated[UserResponse, Depends(require_writer_role)],
+) -> DeviceCommandResponse:
+    """Persist command effects to device state for UI/runtime consumption."""
+    device = await DeviceRepository.get_by_id(device_id)
+    if not device:
+        raise_not_found(f"Device not found: {device_id}")
+
+    current_state = await _load_device_state(device_id)
+    if current_state is None:
+        current_state = _default_state_for_device_type(device.device_type)
+
+    next_state = _apply_command_to_state(
+        current_state,
+        command_request.command,
+        command_request.parameters,
+    )
+
+    async with get_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO device_state (device_id, state, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(device_id) DO UPDATE SET
+                state = excluded.state,
+                updated_at = excluded.updated_at
+            """,
+            (device_id, json.dumps(next_state)),
+        )
+        await conn.commit()
+
+    return DeviceCommandResponse(device_id=device_id, success=True, state=next_state)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)

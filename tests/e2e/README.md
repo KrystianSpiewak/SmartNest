@@ -18,6 +18,5 @@ This folder contains end-to-end baseline test scenarios.
 ## Run
 
 ```bash
-cd SmartNest
 .venv/Scripts/python -m pytest tests/e2e -q
 ```

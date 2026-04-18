@@ -18,7 +18,9 @@ Canonical authorization reference for API routes and role-based access behavior.
 | /api/devices | GET | get_current_user | allow | allow | allow | deny 401 |
 | /api/devices/count | GET | get_current_user | allow | allow | allow | deny 401 |
 | /api/devices/{device_id} | GET | get_current_user | allow | allow | allow | deny 401 |
+| /api/devices/{device_id}/state | GET | get_current_user | allow | allow | allow | deny 401 |
 | /api/devices | POST | require_role(admin,user) | allow | allow | deny 403 | deny 401 |
+| /api/devices/{device_id}/command | POST | require_role(admin,user) | allow | allow | deny 403 | deny 401 |
 | /api/devices/{device_id} | PUT | require_role(admin,user) | allow | allow | deny 403 | deny 401 |
 | /api/devices/{device_id} | DELETE | require_role(admin,user) | allow | allow | deny 403 | deny 401 |
 | /api/devices/{device_id}/status | PATCH | require_role(admin,user) | allow | allow | deny 403 | deny 401 |

@@ -2,7 +2,7 @@
 
 A comprehensive guide to implementing, testing, and maintaining Terminal User Interface (TUI) screens in SmartNest.
 
-**Last Updated:** February 26, 2026 (Post-TUI Implementation - Week 7)
+**Last Updated:** April 12, 2026 (Week 14 documentation refresh)
 
 ---
 
@@ -422,10 +422,10 @@ response = http_client.get("/api/devices")
 response.raise_for_status()  # Raises httpx.HTTPStatusError on 4xx/5xx
 data = response.json()
 
-# POST request
-response = http_client.post(
-    "/api/devices/light_01/command",
-    json={"command": "set_brightness", "parameters": {"brightness": 75}},
+# PATCH request
+response = http_client.patch(
+    "/api/devices/light_01/status",
+    json={"status": "online"},
 )
 response.raise_for_status()
 ```
@@ -456,29 +456,29 @@ def fetch_devices(self) -> bool:
 
 ## Navigation and Keyboard Handling
 
-### Function Key Navigation (Planned)
+### Numeric Key Navigation (Current)
 
 ```python
-# In SmartNestTUI.run() - Keyboard event loop (future implementation)
 def _handle_key(self, key: str) -> None:
     """Handle keyboard input for navigation."""
-    if key == "f1":
+    if key == "1":
         self.current_screen = "dashboard"
-    elif key == "f2":
+    elif key == "2":
+        self.current_screen = "devices"
+    elif key == "3":
         self.current_screen = "settings"
-    elif key == "f3":
-        self.current_screen = "device_list"
-    elif key == "f4":
-        self.current_screen = "sensor_view"
+    elif key == "4":
+        self.current_screen = "sensors"
+    elif key == "5":
+        self.current_screen = "reports"
     elif key.lower() == "q":
-        self.shutdown()
+        self.is_running = False
 ```
 
 **Current Implementation:**
-- Dashboard runs in live mode (no keyboard handling yet)
-- Future: Add `prompt-toolkit` for keyboard input
-- Function keys (F1-F4) for screen navigation
-- Letter keys for screen-specific actions
+- Number keys (`1-5`) navigate across dashboard, devices, settings, sensors, and reports.
+- Letter keys trigger screen-specific actions.
+- Keyboard handling is active in the live run loop.
 
 ### Screen-Specific Actions
 
@@ -488,17 +488,17 @@ def _handle_key(self, key: str) -> None:
 - `W` - Filter by switches
 - `A` - Show all devices
 - `/` - Search prompt
-- `Enter` - Open device detail
 
-**Device Detail Screen (Smart Lights):**
-- `P` - Toggle power
-- `+/-` - Brightness adjustment (±10%)
-- `↑/↓` - Color temperature (±500K)
-- `Esc` - Back to device list
+**Settings Screen:**
+- `A` - Add user
+- `D` - Delete user
 
 **Sensor View Screen:**
 - `R` - Refresh data
-- `E` - Export to CSV (future)
+- `E` - Export to CSV
+
+**Reports Screen:**
+- `R` - Refresh summary
 
 ---
 

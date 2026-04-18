@@ -397,3 +397,161 @@ class TestUpdateDeviceStatus:
         response = client.patch("/api/devices/status-invalid-001/status", json=status_data)
 
         assert response.status_code == 422  # Validation error
+
+
+class TestDeviceStateAndCommands:
+    """Tests for device state and command endpoints used by TUI device detail."""
+
+    def test_get_device_state_returns_default_for_light(self, client: TestClient) -> None:
+        """New light devices return a default light state when no state exists yet."""
+        device_data = {
+            "id": "state-default-001",
+            "friendly_name": "State Default Light",
+            "device_type": "smart_light",
+            "mqtt_topic": "smartnest/device/state-default-001/state",
+            "manufacturer": "Test",
+            "model": "Light",
+            "firmware_version": "1.0.0",
+            "capabilities": ["power", "brightness"],
+        }
+        create_response = client.post("/api/devices", json=device_data)
+        assert create_response.status_code == 201
+
+        response = client.get("/api/devices/state-default-001/state")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["power"] == "off"
+        assert body["brightness"] == 100
+        assert body["color_temperature"] == 4000
+
+    def test_get_device_state_returns_empty_default_for_unknown_type(
+        self, client: TestClient
+    ) -> None:
+        """Non-light devices return an empty default state when no state is persisted."""
+        device_data = {
+            "id": "state-default-unknown-001",
+            "friendly_name": "State Default Unknown",
+            "device_type": "sensor",
+            "mqtt_topic": "smartnest/device/state-default-unknown-001/state",
+            "manufacturer": "Test",
+            "model": "Sensor",
+            "firmware_version": "1.0.0",
+            "capabilities": ["temperature"],
+        }
+        create_response = client.post("/api/devices", json=device_data)
+        assert create_response.status_code == 201
+
+        response = client.get("/api/devices/state-default-unknown-001/state")
+
+        assert response.status_code == 200
+        assert response.json() == {}
+
+    def test_get_device_state_not_found(self, client: TestClient) -> None:
+        """State endpoint returns 404 for unknown device IDs."""
+        response = client.get("/api/devices/unknown-state-device/state")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_send_device_command_updates_state(self, client: TestClient) -> None:
+        """Command endpoint persists updated state and returns command result."""
+        device_data = {
+            "id": "cmd-001",
+            "friendly_name": "Command Light",
+            "device_type": "smart_light",
+            "mqtt_topic": "smartnest/device/cmd-001/state",
+            "manufacturer": "Test",
+            "model": "Light",
+            "firmware_version": "1.0.0",
+            "capabilities": ["power", "brightness"],
+        }
+        create_response = client.post("/api/devices", json=device_data)
+        assert create_response.status_code == 201
+
+        command_response = client.post(
+            "/api/devices/cmd-001/command",
+            json={"command": "set_brightness", "parameters": {"brightness": 80}},
+        )
+
+        assert command_response.status_code == 200
+        command_body = command_response.json()
+        assert command_body["device_id"] == "cmd-001"
+        assert command_body["success"] is True
+        assert command_body["state"]["brightness"] == 80
+        assert command_body["state"]["last_command"] == "set_brightness"
+
+        state_response = client.get("/api/devices/cmd-001/state")
+        assert state_response.status_code == 200
+        state_body = state_response.json()
+        assert state_body["brightness"] == 80
+        assert state_body["last_command"] == "set_brightness"
+
+    def test_send_device_command_set_power_bool_normalized(self, client: TestClient) -> None:
+        """Boolean power values are normalized to on/off strings for TUI rendering."""
+        device_data = {
+            "id": "cmd-002",
+            "friendly_name": "Power Command Light",
+            "device_type": "smart_light",
+            "mqtt_topic": "smartnest/device/cmd-002/state",
+            "manufacturer": "Test",
+            "model": "Light",
+            "firmware_version": "1.0.0",
+            "capabilities": ["power"],
+        }
+        create_response = client.post("/api/devices", json=device_data)
+        assert create_response.status_code == 201
+
+        command_response = client.post(
+            "/api/devices/cmd-002/command",
+            json={"command": "set_power", "parameters": {"power": True}},
+        )
+
+        assert command_response.status_code == 200
+        body = command_response.json()
+        assert body["state"]["power"] == "on"
+
+    def test_send_device_command_uses_existing_state_and_keeps_non_bool_power(
+        self,
+        client: TestClient,
+    ) -> None:
+        """Existing state is reused and string power values bypass bool normalization."""
+        device_data = {
+            "id": "cmd-003",
+            "friendly_name": "Command Existing State",
+            "device_type": "smart_light",
+            "mqtt_topic": "smartnest/device/cmd-003/state",
+            "manufacturer": "Test",
+            "model": "Light",
+            "firmware_version": "1.0.0",
+            "capabilities": ["power", "brightness"],
+        }
+        create_response = client.post("/api/devices", json=device_data)
+        assert create_response.status_code == 201
+
+        first_command = client.post(
+            "/api/devices/cmd-003/command",
+            json={"command": "set_brightness", "parameters": {"brightness": 55}},
+        )
+        assert first_command.status_code == 200
+
+        second_command = client.post(
+            "/api/devices/cmd-003/command",
+            json={"command": "set_power", "parameters": {"power": "on"}},
+        )
+
+        assert second_command.status_code == 200
+        body = second_command.json()
+        assert body["state"]["brightness"] == 55
+        assert body["state"]["power"] == "on"
+        assert body["state"]["last_command"] == "set_power"
+
+    def test_send_device_command_not_found(self, client: TestClient) -> None:
+        """Command endpoint returns 404 for unknown device IDs."""
+        response = client.post(
+            "/api/devices/unknown-command-device/command",
+            json={"command": "set_power", "parameters": {"power": "on"}},
+        )
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()

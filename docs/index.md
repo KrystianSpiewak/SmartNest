@@ -8,7 +8,8 @@ Quick reference for SmartNest project documentation and configuration.
 - [README.md](../README.md) - Project overview, setup, and getting started
 - [package.json](../package.json) - npm task runner scripts
 - [pyproject.toml](../pyproject.toml) - ruff, pytest, mypy configuration
-- [docker-compose.yml](../docker-compose.yml) - HiveMQ MQTT broker container
+- [docker-compose.yml](../docker-compose.yml) - MQTT broker and optional backend full-stack profile
+- [Dockerfile](../Dockerfile) - Backend API container image definition
 
 ### Requirements
 - [requirements/base.txt](../requirements/base.txt) - Production dependencies
@@ -21,6 +22,7 @@ Quick reference for SmartNest project documentation and configuration.
 
 ### Scripts
 - [scripts/mqtt_validation_test.py](../scripts/mqtt_validation_test.py) - Broker connectivity test
+- [scripts/wait_for_api_health.py](../scripts/wait_for_api_health.py) - API health polling helper used by smoke scripts
 
 ### Backend MQTT Module
 - [backend/mqtt/topics.py](../backend/mqtt/topics.py) - MQTT topic builder (TopicBuilder)
@@ -66,7 +68,7 @@ Documentation Standards References:
 ## Quality Metrics (Current)
 
 - **Test Coverage:** 100% maintained
-- **Test Count:** 1048 tests
+- **Test Count:** 1079 tests collected (latest run: 1075 passed, 4 skipped)
 - **Linting:** ruff checks passing
 - **Type Safety:** mypy strict mode passing
 - **Validation Gate:** `npm run validate` passing
@@ -87,147 +89,52 @@ Documentation Standards References:
 - [.gitignore](../.gitignore) - Git ignore patterns
 - `.git/hooks/pre-commit` - Automatic ruff checks on commit
 
-## Development Workflow
+## Getting Started
 
-```bash
-# Setup (first time)
-npm run setup          # Create .venv + install dependencies
-npm run docker:up      # Start HiveMQ broker
+Use the README as the single source of truth for first-run and smoke-test workflows:
 
-# Activate venv (optional - scripts work without it)
-npm run activate       # Shows activation command
-source .venv/Scripts/activate  # Then run this
+- [README.md](../README.md) - Quick Start (setup, smoke run, TUI verification, teardown)
+- [validation_checklist.md](validation_checklist.md) - Reusable quality-gate command set
 
-# Daily workflow
-npm run lint           # ruff check
-npm run lint:fix       # ruff check --fix
-npm run format         # ruff format
-npm run typecheck      # mypy strict mode
-npm run test           # pytest
-npm run validate       # Full pipeline (lint + format + typecheck + test)
-```
-
-## TUI Usage
-
-TUI launch instructions, keyboard shortcuts, screen descriptions, and troubleshooting are maintained in:
+For TUI implementation details and keyboard behavior, use:
 
 - [tui_developer_guide.md](tui_developer_guide.md)
 
-## Mutation Testing
+For mutation testing setup and analysis, use:
 
-** Windows users:** mutmut requires WSL2 due to Unix process management (fork, setproctitle).
+- [mutation_testing.md](mutation_testing.md)
 
-### Prerequisites
-- Windows 10 version 2004+ or Windows 11
-- WSL2 installed: `wsl --install` (PowerShell as Administrator)
-- Python 3.12+ in WSL (Ubuntu comes with Python 3.12.3)
+## Command Reference
 
-### Initial Setup (One-Time)
+Run commands from the SmartNest root directory.
 
-```bash
-# In WSL terminal
-# Update package lists
-sudo apt update
+| Goal | Command |
+|---|---|
+| First-time setup | `npm run setup` |
+| Rebuild demo .env values | `npm run setup:env -- --force` |
+| Full API+TUI smoke run | `npm run smoke:tui` |
+| Smoke prep without launching TUI | `npm run smoke:tui:prep` |
+| Start full stack manually | `npm run docker:up:stack` |
+| Clean full-stack teardown | `npm run docker:down:stack` |
+| Full quality gate | `npm run validate` |
 
-# Create venv in WSL native filesystem (avoids /mnt/d/ permission issues)
-cd ~
-python3 -m venv smartnest-venv
+If npm is unavailable, see the direct Python and Docker workflow in [README.md](../README.md#running-without-npm).
 
-# Activate venv
-source ~/smartnest-venv/bin/activate
+## VS Code Tasks
 
-# Upgrade pip
-pip install --upgrade pip
-```
-
-### Daily Usage
-
-**Recommended: Using bash script (works from WSL)**
-
-```bash
-# Make script executable (first time only)
-chmod +x mutmut.sh
-
-# Full workflow:
-./mutmut.sh all          # Run full pipeline (sync + test + report + sync back)
-./mutmut.sh analyze      # Categorize mutants by priority
-./mutmut.sh list         # List all surviving mutants
-./mutmut.sh show <id>    # Show diff for specific mutant
-./mutmut.sh apply <id>   # Apply mutant to see actual code
-
-# Individual commands:
-./mutmut.sh sync         # Sync project to WSL
-./mutmut.sh run          # Run mutation testing only
-./mutmut.sh results      # Show summary
-./mutmut.sh report       # Generate text report
-./mutmut.sh sync-report  # Copy report to Windows
-```
-
-**Investigating Mutants:**
-1. Run `./mutmut.sh all` - Full pipeline, creates `reports/mutation_report.txt` in Windows
-2. Open `reports/mutation_report.txt` to see all results
-3. Run `./mutmut.sh analyze` to see categorized high-priority mutants
-4. Run `./mutmut.sh show <full-id>` to see diff for specific mutant
-5. If needed, `./mutmut.sh apply <full-id>` to see actual code (run `./mutmut.sh sync` to revert)
-6. Write test to kill the mutant, then re-run mutation testing
-
-### Troubleshooting
-
-**Error: "node: not found" when running npm scripts**
-- npm scripts must be run from **Windows** (PowerShell/Command Prompt), not from inside WSL
-- Exit WSL with `exit` command, then run npm scripts from Windows
-- Alternative: Use `./mutmut.sh` commands directly in WSL
-
-**Error: "Operation not permitted" when creating venv**
-- Don't create venv on Windows filesystem (`/mnt/d/...`)
-- Create in WSL home: `cd ~ && python3 -m venv smartnest-venv`
-
-**Error: "Operation not permitted" when running mutmut**
-- mutmut needs to create `mutants/` directory which requires filesystem permissions
-- Solution: Copy project to WSL native filesystem before running
-- Use `rsync` command from Daily Usage section above
-
-**Error: "pip not found"**
-- Run: `sudo apt update && sudo apt install python3-pip -y`
-
-**Error: "python3.13 not found" or version mismatch**
-- Python 3.12.3 (WSL default) works fine for mutation testing
-- Code doesn't use 3.13-specific features
-
-**WSL filesystem is slow**
-- Accessing `/mnt/d/` is slower than native WSL filesystem
-- This is expected; mutmut performance is still acceptable
-
-```bash
-# MQTT
-npm run test:mqtt      # Validate MQTT connectivity
-npm run docker:health  # Check broker status
-npm run docker:logs    # View broker logs
-npm run docker:down    # Stop broker
-```
-
-### VS Code Tasks
-Available via `Ctrl+Shift+P` -> "Tasks: Run Task" or via the `run_task` tool:
+Run from `Tasks: Run Task` in VS Code:
 
 | Task Label | npm Script | Purpose |
 |---|---|---|
 | SmartNest: Start Broker | `docker:up` + `docker:logs` | Start HiveMQ MQTT broker |
-| SmartNest: Stop Broker | `docker:down` | Stop the broker |
+| SmartNest: Stop Broker | `docker:down` | Stop broker profile |
 | SmartNest: MQTT Validation | `test:mqtt` | Validate broker connectivity |
 | SmartNest: Broker Health | `docker:health` | Check broker status |
-| SmartNest: Lint | `lint` | ruff check |
-| SmartNest: Test | `test` | pytest (unit + integration) |
-| SmartNest: Test Coverage | `test:cov` | pytest with coverage report |
-| SmartNest: Validate | `validate` | Full pipeline (lint + format + typecheck + test:cov) |
+| SmartNest: Lint | `lint` | Run ruff checks |
+| SmartNest: Test | `test` | Run unit + integration tests |
+| SmartNest: Test Coverage | `test:cov` | Run tests with coverage report |
+| SmartNest: Validate | `validate` | Run lint + format + typecheck + test:cov |
 
-
-## Developer Guides
-
-- [architecture.md](architecture.md) - Comprehensive system architecture with diagrams
-- [tui_developer_guide.md](tui_developer_guide.md) - TUI development patterns and testing
-- [device_implementation_guide.md](device_implementation_guide.md) - Creating new device types
-- [discovery_protocol.md](discovery_protocol.md) - Device discovery specification
-- [mutation_testing.md](mutation_testing.md) - Mutation testing with mutmut, understanding results, known limitations, and mutation score calculation
 
 ## Code Quality Standards
 
@@ -236,19 +143,6 @@ Primary quality configuration is maintained in:
 - [pyproject.toml](../pyproject.toml)
 - [.gitattributes](../.gitattributes)
 - [.editorconfig](../.editorconfig)
-
-## Quick Reference
-
-| Topic | File |
-|-------|------|
-| Getting started | [README.md](../README.md) |
-| System architecture | [architecture.md](architecture.md) |
-| TUI development | [tui_developer_guide.md](tui_developer_guide.md) |
-| Task commands | [package.json](../package.json) |
-| Linting/formatting | [pyproject.toml](../pyproject.toml) |
-| Line endings | [.gitattributes](../.gitattributes) |
-| Editor config | [.editorconfig](../.editorconfig) |
-| Mutation testing | [mutation_testing.md](mutation_testing.md) |
 
 ## MQTT Broker Logging
 
@@ -270,5 +164,5 @@ Primary quality configuration is maintained in:
 
 ---
 
-**Last Updated:** March 28, 2026  
+**Last Updated:** April 18, 2026  
 **Project:** SmartNest Home Automation Management System

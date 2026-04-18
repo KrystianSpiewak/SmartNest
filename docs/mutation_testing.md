@@ -59,7 +59,9 @@ cd ~/smartnest-project && mutmut browse
 
 **Mutation Score = Killed / (Total - Incompetent - No tests)**
 
-Current score: **97.5%** (1245 killed / 1277 testable mutants)
+Last recorded benchmark score: **97.5%** (1245 killed / 1277 testable mutants)
+
+Note: re-run `./mutmut.sh all` for a current score snapshot after major test or backend changes.
 
 ## Known Limitations
 
@@ -134,4 +136,4 @@ Common patterns in surviving mutants:
 
 - [Mutmut Documentation](https://mutmut.readthedocs.io/)
 - [Mutation Testing Concepts](https://en.wikipedia.org/wiki/Mutation_testing)
-- [SmartNest Testing Strategy](./testing_strategy.md)
+- [SmartNest Validation Checklist](./validation_checklist.md)

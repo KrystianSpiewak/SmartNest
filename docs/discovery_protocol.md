@@ -1,17 +1,17 @@
 # SmartNest Device Discovery Protocol Specification
 
 **Version:** 1.0  
-**Phase:** 2 - Device Ecosystem (In-Memory Registry)  
+**Phase:** Active runtime discovery protocol (consumed by backend sync workflows)  
 **Protocol:** MQTT-based device announcement and registration  
-**Last Updated:** February 8, 2026
+**Last Updated:** April 12, 2026
 
 ---
 
 ## Overview
 
-The SmartNest Discovery Protocol enables automatic device registration through MQTT topic announcements. When a device starts, it publishes a discovery message containing metadata and capabilities. The `DiscoveryConsumer` service subscribes to discovery announcements and maintains an in-memory registry of discovered devices.
+The SmartNest Discovery Protocol enables automatic device registration through MQTT topic announcements. When a device starts, it publishes a discovery message containing metadata and capabilities. The `DiscoveryConsumer` service subscribes to discovery announcements and maintains a validated in-memory registry used by backend synchronization workflows.
 
-**Design Rationale:** This protocol is inspired by [Home Assistant's MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery) but simplified for SmartNest's Phase 2 requirements. Database persistence will be added in Phase 3 (Backend API).
+**Design Rationale:** This protocol is inspired by [Home Assistant's MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery) and adapted for SmartNest runtime/device simulation needs.
 
 ---
 
