@@ -49,9 +49,68 @@ class DeviceListScreen:
         self.devices: list[dict[str, Any]] = []
         self.filter_type = "all"
         self.search_query = ""
+        self.selected_device_id: str | None = None
         self._last_fetch_at = 0.0
         self._last_fetch_success = False
         self._fetch_interval_seconds = 2.0
+
+    @staticmethod
+    def _device_id_value(device: dict[str, Any]) -> str:
+        """Return normalized device identifier from API payload variants."""
+        return str(device.get("id") or device.get("device_id") or "").strip()
+
+    def _sync_selection(self, devices: list[dict[str, Any]]) -> None:
+        """Keep selected device anchored to visible filtered results."""
+        if not devices:
+            self.selected_device_id = None
+            return
+
+        if self.selected_device_id:
+            selected_visible = any(
+                self._device_id_value(device) == self.selected_device_id for device in devices
+            )
+            if selected_visible:
+                return
+
+        self.selected_device_id = self._device_id_value(devices[0])
+
+    def get_selected_device(self) -> dict[str, Any] | None:
+        """Return currently selected device from filtered results."""
+        filtered_devices = self.get_filtered_devices()
+        self._sync_selection(filtered_devices)
+
+        if not self.selected_device_id:
+            return None
+
+        for device in filtered_devices:
+            if self._device_id_value(device) == self.selected_device_id:
+                return device
+        return None
+
+    def move_selection(self, delta: int) -> bool:
+        """Move selected device by delta through current filtered list.
+
+        Args:
+            delta: Positive/negative movement amount.
+
+        Returns:
+            True when selection changed, False when no devices are visible.
+        """
+        filtered_devices = self.get_filtered_devices()
+        self._sync_selection(filtered_devices)
+
+        if not filtered_devices:
+            return False
+
+        device_ids = [self._device_id_value(device) for device in filtered_devices]
+        if self.selected_device_id in device_ids:
+            current_index = device_ids.index(self.selected_device_id)
+        else:
+            current_index = 0
+
+        next_index = (current_index + delta) % len(filtered_devices)
+        self.selected_device_id = device_ids[next_index]
+        return True
 
     def fetch_devices(self) -> bool:
         """Fetch devices from API and cache locally.
@@ -136,6 +195,7 @@ class DeviceListScreen:
         """
         if filter_type in ("all", "lights", "sensors", "switches"):
             self.filter_type = filter_type
+            self._sync_selection(self.get_filtered_devices())
 
     def set_search(self, query: str) -> None:
         """Set search query.
@@ -144,6 +204,7 @@ class DeviceListScreen:
             query: Search string (case-insensitive)
         """
         self.search_query = query
+        self._sync_selection(self.get_filtered_devices())
 
     def prompt_search(self) -> None:
         """Prompt for search query outside live render and update filter text.
@@ -264,8 +325,10 @@ class DeviceListScreen:
 
         # Get filtered devices
         filtered_devices = self.get_filtered_devices()
+        self._sync_selection(filtered_devices)
 
         table = Table(show_header=True, header_style="bold cyan", expand=True)
+        table.add_column("Sel", justify="center", width=3)
         table.add_column("ID", style="dim", width=10)
         table.add_column("Name", style="bold", width=25)
         table.add_column("Type", width=20)
@@ -304,13 +367,20 @@ class DeviceListScreen:
             else:
                 last_seen_display = "Never"
 
+            device_id = str(device.get("id") or device.get("device_id") or "")
+            is_selected = bool(device_id) and device_id == self.selected_device_id
+            selected_marker = ">" if is_selected else " "
+            row_style = "bold" if is_selected else "none"
+
             table.add_row(
-                str(device.get("id") or device.get("device_id") or ""),
+                selected_marker,
+                device_id,
                 str(device.get("friendly_name") or device.get("name") or ""),
                 device_type_display,
                 status_text,
                 str(device.get("location", "")),
                 last_seen_display,
+                style=row_style,
             )
 
         return Panel(
@@ -337,6 +407,8 @@ class DeviceListScreen:
         instructions.append(" All  ")
         instructions.append("[/]", style="bold blue")
         instructions.append(" Search  ")
+        instructions.append("[J/K]", style="bold blue")
+        instructions.append(" Select  ")
         instructions.append("[Enter]", style="bold blue")
         instructions.append(" Details")
 

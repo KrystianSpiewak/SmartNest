@@ -1157,11 +1157,11 @@ class TestSmartNestTUIRun:
         tui._input_queue.put("2")
         assert tui._poll_input_key() == "2"
 
-    def test_poll_input_key_ignores_newline(self) -> None:
-        """_poll_input_key() ignores CR/LF characters from stdin queue."""
+    def test_poll_input_key_returns_newline(self) -> None:
+        """_poll_input_key() returns newline so Enter can be handled by screens."""
         tui = SmartNestTUI()
         tui._input_queue.put("\n")
-        assert tui._poll_input_key() is None
+        assert tui._poll_input_key() == "\n"
 
     def test_start_input_reader_skips_under_pytest(self) -> None:
         """_start_input_reader() does not spawn thread in pytest environment."""
@@ -2013,6 +2013,63 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
 
             assert tui._pending_action == "search_devices"
 
+        def test_enter_opens_device_detail_for_selected_device(self) -> None:
+            """Enter switches from devices screen to detail view for current selection."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+            selected = {"id": "light_01", "friendly_name": "Living Room Light"}
+
+            with (
+                patch.object(tui.device_list, "get_selected_device", return_value=selected),
+                patch.object(tui.device_detail, "set_device") as mock_set_device,
+                patch.object(tui, "_activate_device_detail_live_updates") as mock_activate,
+            ):
+                tui._handle_key("\n")
+
+            assert tui.current_screen == "device_detail"
+            mock_set_device.assert_called_once_with("light_01")
+            mock_activate.assert_called_once_with("light_01")
+
+        def test_enter_does_not_navigate_when_no_device_selected(self) -> None:
+            """Enter keeps devices screen active when no selected device is available."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+
+            with (
+                patch.object(tui.device_list, "get_selected_device", return_value=None),
+                patch.object(tui.device_detail, "set_device") as mock_set_device,
+                patch.object(tui, "_activate_device_detail_live_updates") as mock_activate,
+            ):
+                tui._handle_key("\n")
+
+            assert tui.current_screen == "devices"
+            mock_set_device.assert_not_called()
+            mock_activate.assert_not_called()
+
+        def test_j_and_k_move_device_selection_on_devices_screen(self) -> None:
+            """'j' and 'k' move device list selection on devices screen."""
+            tui = SmartNestTUI()
+            tui.current_screen = "devices"
+
+            with patch.object(tui.device_list, "move_selection") as mock_move:
+                tui._handle_key("j")
+                tui._handle_key("k")
+
+            assert mock_move.call_count == 2
+            assert mock_move.call_args_list[0].args == (1,)
+            assert mock_move.call_args_list[1].args == (-1,)
+
+        def test_escape_returns_from_device_detail_to_device_list(self) -> None:
+            """Esc key exits device detail screen and returns to devices list."""
+            tui = SmartNestTUI()
+            tui.current_screen = "device_detail"
+
+            with patch.object(tui, "_deactivate_device_detail_live_updates") as mock_deactivate:
+                tui._handle_key("\x1b")
+
+            assert tui.current_screen == "devices"
+            mock_deactivate.assert_called_once_with()
+
         def test_r_refreshes_sensor_screen(self) -> None:
             """'r' triggers sensor refresh on sensors screen."""
             tui = SmartNestTUI()
@@ -2108,6 +2165,161 @@ class TestSmartNestTUIFetchDeviceCountEdgeCases:
                 handled = tui._handle_reports_key("x")
             assert handled is False
             mock_refresh.assert_not_called()
+
+    class TestSmartNestTUIDeviceDetailLiveUpdates:
+        """Tests for device-detail MQTT update handlers and subscriptions."""
+
+        def test_state_update_applies_live_payload(self) -> None:
+            """State-topic handler forwards parsed dict payload to detail screen."""
+            tui = SmartNestTUI()
+            message = MagicMock()
+            message.payload = b'{"power":"on","brightness":60}'
+            message.topic = "smartnest/device/light_01/state"
+
+            with patch.object(tui.device_detail, "apply_live_state_update") as mock_apply:
+                tui._on_device_detail_state_update(MagicMock(), object(), message)
+
+            mock_apply.assert_called_once_with(
+                {"power": "on", "brightness": 60}, source="mqtt_state"
+            )
+
+        def test_state_update_logs_parse_error_for_invalid_payload(self) -> None:
+            """State-topic handler logs parse errors and skips update for bad JSON."""
+            tui = SmartNestTUI()
+            message = MagicMock()
+            message.payload = b"not-json"
+            message.topic = "smartnest/device/light_01/state"
+
+            with (
+                patch.object(tui.device_detail, "apply_live_state_update") as mock_apply,
+                patch("backend.tui.app.log_with_code") as mock_log,
+            ):
+                tui._on_device_detail_state_update(MagicMock(), object(), message)
+
+            mock_apply.assert_not_called()
+            assert any(
+                call.args[2] == MessageCode.TUI_MQTT_MESSAGE_PARSE_ERROR
+                for call in mock_log.call_args_list
+            )
+
+        def test_state_update_ignores_non_dict_payload(self) -> None:
+            """State-topic handler ignores valid JSON payloads that are not objects."""
+            tui = SmartNestTUI()
+            message = MagicMock()
+            message.payload = b"[1,2,3]"
+            message.topic = "smartnest/device/light_01/state"
+
+            with patch.object(tui.device_detail, "apply_live_state_update") as mock_apply:
+                tui._on_device_detail_state_update(MagicMock(), object(), message)
+
+            mock_apply.assert_not_called()
+
+        def test_sensor_update_applies_live_payload(self) -> None:
+            """Sensor-topic handler forwards parsed dict payload to detail screen."""
+            tui = SmartNestTUI()
+            message = MagicMock()
+            message.payload = b'{"temperature":21.5}'
+            message.topic = "smartnest/sensor/sensor_01/data"
+
+            with patch.object(tui.device_detail, "apply_live_state_update") as mock_apply:
+                tui._on_device_detail_sensor_update(MagicMock(), object(), message)
+
+            mock_apply.assert_called_once_with({"temperature": 21.5}, source="sensor_data")
+
+        def test_sensor_update_logs_parse_error_for_invalid_payload(self) -> None:
+            """Sensor-topic handler logs parse errors and skips update for bad JSON."""
+            tui = SmartNestTUI()
+            message = MagicMock()
+            message.payload = b"{"
+            message.topic = "smartnest/sensor/sensor_01/data"
+
+            with (
+                patch.object(tui.device_detail, "apply_live_state_update") as mock_apply,
+                patch("backend.tui.app.log_with_code") as mock_log,
+            ):
+                tui._on_device_detail_sensor_update(MagicMock(), object(), message)
+
+            mock_apply.assert_not_called()
+            assert any(
+                call.args[2] == MessageCode.TUI_MQTT_MESSAGE_PARSE_ERROR
+                for call in mock_log.call_args_list
+            )
+
+        def test_sensor_update_ignores_non_dict_payload(self) -> None:
+            """Sensor-topic handler ignores valid JSON payloads that are not objects."""
+            tui = SmartNestTUI()
+            message = MagicMock()
+            message.payload = b'"text"'
+            message.topic = "smartnest/sensor/sensor_01/data"
+
+            with patch.object(tui.device_detail, "apply_live_state_update") as mock_apply:
+                tui._on_device_detail_sensor_update(MagicMock(), object(), message)
+
+            mock_apply.assert_not_called()
+
+        def test_activate_device_detail_live_updates_subscribes_and_registers_handlers(
+            self,
+        ) -> None:
+            """Activating detail updates subscribes to state/sensor topics and handlers."""
+            tui = SmartNestTUI()
+
+            with (
+                patch.object(tui, "_deactivate_device_detail_live_updates") as mock_deactivate,
+                patch.object(tui.mqtt_client, "subscribe") as mock_subscribe,
+                patch.object(tui.mqtt_client, "add_topic_handler") as mock_add_handler,
+            ):
+                tui._activate_device_detail_live_updates("light_01")
+
+            state_topic = "smartnest/device/light_01/state"
+            sensor_topic = "smartnest/sensor/light_01/data"
+
+            mock_deactivate.assert_called_once_with()
+            assert mock_subscribe.call_args_list[0].args == (state_topic,)
+            assert mock_subscribe.call_args_list[1].args == (sensor_topic,)
+            assert mock_add_handler.call_args_list[0].args == (
+                state_topic,
+                tui._on_device_detail_state_update,
+            )
+            assert mock_add_handler.call_args_list[1].args == (
+                sensor_topic,
+                tui._on_device_detail_sensor_update,
+            )
+            assert tui._device_detail_state_topic == state_topic
+            assert tui._device_detail_sensor_topic == sensor_topic
+
+        def test_deactivate_device_detail_live_updates_removes_existing_topics(self) -> None:
+            """Deactivation removes existing handlers and clears cached topic names."""
+            tui = SmartNestTUI()
+            tui._device_detail_state_topic = "smartnest/device/light_01/state"
+            tui._device_detail_sensor_topic = "smartnest/sensor/light_01/data"
+
+            with patch.object(tui.mqtt_client, "remove_topic_handler") as mock_remove:
+                tui._deactivate_device_detail_live_updates()
+
+            assert mock_remove.call_args_list[0].args == ("smartnest/device/light_01/state",)
+            assert mock_remove.call_args_list[1].args == ("smartnest/sensor/light_01/data",)
+            assert tui._device_detail_state_topic is None
+            assert tui._device_detail_sensor_topic is None
+
+        def test_handle_device_detail_key_refresh_calls_fetch(self) -> None:
+            """Device detail key 'r' refreshes current device data."""
+            tui = SmartNestTUI()
+
+            with patch.object(tui.device_detail, "fetch_device_data") as mock_fetch:
+                handled = tui._handle_device_detail_key("R")
+
+            assert handled is True
+            mock_fetch.assert_called_once_with()
+
+        def test_handle_device_detail_key_unknown_returns_false(self) -> None:
+            """Unknown detail keys are ignored."""
+            tui = SmartNestTUI()
+
+            with patch.object(tui.device_detail, "fetch_device_data") as mock_fetch:
+                handled = tui._handle_device_detail_key("x")
+
+            assert handled is False
+            mock_fetch.assert_not_called()
 
     class TestSmartNestTUIExecuteModalAction:
         """Tests for _execute_modal_action() method."""

@@ -176,6 +176,8 @@ class SmartNestTUI:
         self._dashboard_summary_last_fetch = 0.0
         self._dashboard_summary_ttl_seconds = 2.0
         self._mqtt_connected_since = 0.0
+        self._device_detail_state_topic: str | None = None
+        self._device_detail_sensor_topic: str | None = None
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_sigint)
@@ -238,15 +240,21 @@ class SmartNestTUI:
         Returns:
             Single-character key if available, otherwise None.
         """
-        if msvcrt is not None and msvcrt.kbhit():  # pragma: no cover
-            return msvcrt.getwch()  # pragma: no cover
         try:
             char = self._input_queue.get_nowait()
         except queue.Empty:
-            return None
-        if char in ("\r", "\n"):
+            if msvcrt is not None and msvcrt.kbhit():  # pragma: no cover
+                return msvcrt.getwch()  # pragma: no cover
             return None
         return char
+
+    @staticmethod
+    def _extract_device_id(device: dict[str, Any] | None) -> str | None:
+        """Extract device identifier from supported API payload variants."""
+        if not device:
+            return None
+        device_id = str(device.get("id") or device.get("device_id") or "").strip()
+        return device_id or None
 
     def _fetch_device_count(self) -> int | None:
         """Fetch device count from backend API.
@@ -421,6 +429,83 @@ class SmartNestTUI:
                 topic=message.topic,
             )
 
+    def _on_device_detail_state_update(
+        self,
+        _client: mqtt.Client,
+        _userdata: object,
+        message: mqtt.MQTTMessage,
+        /,
+    ) -> None:
+        """Handle live device state updates for currently selected detail view."""
+        try:
+            payload = json.loads(message.payload.decode())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            log_with_code(
+                logger,
+                "warning",
+                MessageCode.TUI_MQTT_MESSAGE_PARSE_ERROR,
+                error=str(e),
+                topic=message.topic,
+            )
+            return
+
+        if isinstance(payload, dict):
+            self.device_detail.apply_live_state_update(payload, source="mqtt_state")
+
+    def _on_device_detail_sensor_update(
+        self,
+        _client: mqtt.Client,
+        _userdata: object,
+        message: mqtt.MQTTMessage,
+        /,
+    ) -> None:
+        """Handle live sensor data updates for currently selected detail view."""
+        try:
+            payload = json.loads(message.payload.decode())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            log_with_code(
+                logger,
+                "warning",
+                MessageCode.TUI_MQTT_MESSAGE_PARSE_ERROR,
+                error=str(e),
+                topic=message.topic,
+            )
+            return
+
+        if isinstance(payload, dict):
+            self.device_detail.apply_live_state_update(payload, source="sensor_data")
+
+    def _deactivate_device_detail_live_updates(self) -> None:
+        """Remove temporary MQTT handlers used by the device detail view."""
+        if self._device_detail_state_topic:
+            self.mqtt_client.remove_topic_handler(self._device_detail_state_topic)
+            self._device_detail_state_topic = None
+
+        if self._device_detail_sensor_topic:
+            self.mqtt_client.remove_topic_handler(self._device_detail_sensor_topic)
+            self._device_detail_sensor_topic = None
+
+    def _activate_device_detail_live_updates(self, device_id: str) -> None:
+        """Subscribe to selected device live state/sensor topics for detail view."""
+        self._deactivate_device_detail_live_updates()
+
+        state_topic = f"smartnest/device/{device_id}/state"
+        sensor_topic = f"smartnest/sensor/{device_id}/data"
+
+        self.mqtt_client.subscribe(state_topic)
+        self.mqtt_client.subscribe(sensor_topic)
+        self.mqtt_client.add_topic_handler(state_topic, self._on_device_detail_state_update)
+        self.mqtt_client.add_topic_handler(sensor_topic, self._on_device_detail_sensor_update)
+
+        self._device_detail_state_topic = state_topic
+        self._device_detail_sensor_topic = sensor_topic
+
+    def _set_screen(self, screen: str) -> None:
+        """Switch screen and clean up detail subscriptions when leaving detail view."""
+        if self.current_screen == "device_detail" and screen != "device_detail":
+            self._deactivate_device_detail_live_updates()
+        self.current_screen = screen
+
     def _handle_sigint(self, _signum: int, _frame: FrameType | None) -> None:
         """Handle SIGINT (Ctrl+C) for graceful shutdown.
 
@@ -503,6 +588,9 @@ class SmartNestTUI:
         log_with_code(logger, "info", MessageCode.TUI_SHUTDOWN)
         self.console.print("\n[bold yellow]Shutting down SmartNest TUI...[/bold yellow]")
 
+        # Remove temporary per-device subscriptions before disconnect.
+        self._deactivate_device_detail_live_updates()
+
         # Disconnect MQTT client
         self.mqtt_client.disconnect()
         log_with_code(logger, "info", MessageCode.TUI_MQTT_DISCONNECTED, rc=0)
@@ -558,45 +646,84 @@ class SmartNestTUI:
             True if key was handled, False otherwise.
         """
         if key == "1":
-            self.current_screen = "dashboard"
+            self._set_screen("dashboard")
             return True
         if key == "2":
-            self.current_screen = "devices"
+            self._set_screen("devices")
             return True
         if key == "3":
-            self.current_screen = "settings"
+            self._set_screen("settings")
             return True
         if key == "4":
-            self.current_screen = "sensors"
+            self._set_screen("sensors")
             return True
         if key == "5":
-            self.current_screen = "reports"
+            self._set_screen("reports")
             return True
         return False
 
-    def _handle_devices_key(self, key_lower: str) -> bool:
+    def _handle_devices_key(self, key: str) -> bool:
         """Handle device-list screen keys.
 
         Args:
-            key_lower: Lower-cased key input.
+            key: Raw key input.
 
         Returns:
             True if key was handled, False otherwise.
         """
+        key_lower = key.lower()
+        handled = False
+
         filters = {
             "l": "lights",
             "s": "sensors",
             "w": "switches",
             "a": "all",
         }
-        if key_lower == "/":
+
+        if key in ("\r", "\n"):
+            selected = self.device_list.get_selected_device()
+            device_id = self._extract_device_id(selected)
+            if device_id:
+                self.device_detail.set_device(device_id)
+                self._activate_device_detail_live_updates(device_id)
+                self._set_screen("device_detail")
+            handled = True
+        elif key_lower == "j":
+            self.device_list.move_selection(1)
+            handled = True
+        elif key_lower == "k":
+            self.device_list.move_selection(-1)
+            handled = True
+        elif key_lower == "/":
             self._pending_action = "search_devices"
+            handled = True
+        else:
+            filter_type = filters.get(key_lower)
+            if filter_type is not None:
+                self.device_list.set_filter(filter_type)
+                handled = True
+
+        return handled
+
+    def _handle_device_detail_key(self, key: str) -> bool:
+        """Handle device detail screen keys.
+
+        Args:
+            key: Raw key input.
+
+        Returns:
+            True if key was handled, False otherwise.
+        """
+        if key == "\x1b":
+            self._set_screen("devices")
             return True
-        filter_type = filters.get(key_lower)
-        if filter_type is None:
-            return False
-        self.device_list.set_filter(filter_type)
-        return True
+
+        if key.lower() == "r":
+            self.device_detail.fetch_device_data()
+            return True
+
+        return False
 
     def _handle_sensor_key(self, key_lower: str) -> bool:
         """Handle sensor screen action keys.
@@ -653,24 +780,19 @@ class SmartNestTUI:
             key: Single character key pressed by the user.
         """
         key_lower = key.lower()
-        if key == "\x03":
+        if key == "\x03" or key_lower == "q":
             self.is_running = False
+        elif self._handle_navigation_key(key):
             return
-        if key_lower == "q":
-            self.is_running = False
-            return
-        if self._handle_navigation_key(key):
-            return
-        if self.current_screen == "devices":
-            self._handle_devices_key(key_lower)
-            return
-        if self.current_screen == "sensors":
+        elif self.current_screen == "devices":
+            self._handle_devices_key(key)
+        elif self.current_screen == "device_detail":
+            self._handle_device_detail_key(key)
+        elif self.current_screen == "sensors":
             self._handle_sensor_key(key_lower)
-            return
-        if self.current_screen == "reports":
+        elif self.current_screen == "reports":
             self._handle_reports_key(key_lower)
-            return
-        if self.current_screen == "settings":
+        elif self.current_screen == "settings":
             self._handle_settings_key(key_lower)
 
     def _execute_modal_action(self, action: str) -> None:

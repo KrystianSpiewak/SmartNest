@@ -25,6 +25,7 @@ REQUIRED_KEYS = (
     "SMARTNEST_ADMIN_PASSWORD",
     "SMARTNEST_JWT_SECRET",
 )
+_ADMIN_EMAIL_KEY = "SMARTNEST_ADMIN_EMAIL"
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,17 +49,29 @@ def build_demo_values() -> dict[str, str]:
     """Build fresh values for required demo keys."""
     return {
         "SMARTNEST_ADMIN_USERNAME": "admin",
-        "SMARTNEST_ADMIN_EMAIL": "admin@smartnest.local",
+        "SMARTNEST_ADMIN_EMAIL": "admin@example.com",
         "SMARTNEST_ADMIN_PASSWORD": generate_password(),
         "SMARTNEST_JWT_SECRET": secrets.token_urlsafe(48),
     }
 
 
-def should_replace(value: str, force: bool) -> bool:
+def _is_problematic_demo_email(value: str) -> bool:
+    """Return True when email value is known to fail backend validation."""
+    if "@" not in value:
+        return True
+
+    _, domain = value.rsplit("@", 1)
+    normalized_domain = domain.strip().lower()
+    return normalized_domain == "local" or normalized_domain.endswith(".local")
+
+
+def should_replace(key: str, value: str, force: bool) -> bool:
     """Return True when a value should be replaced."""
     if force:
         return True
-    return value == "" or value.startswith(PLACEHOLDER_PREFIX)
+    if value == "" or value.startswith(PLACEHOLDER_PREFIX):
+        return True
+    return key == _ADMIN_EMAIL_KEY and _is_problematic_demo_email(value)
 
 
 def parse_assignment(line: str) -> tuple[str, str] | None:
@@ -107,7 +120,7 @@ def update_required_values(force: bool) -> dict[str, str]:
 
         seen.add(key)
 
-        if should_replace(value, force):
+        if should_replace(key, value, force):
             value = replacements[key]
             newline = "\n" if line.endswith("\n") else ""
             lines[index] = f"{key}={value}{newline}"

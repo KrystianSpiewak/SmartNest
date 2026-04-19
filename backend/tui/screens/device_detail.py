@@ -43,6 +43,8 @@ class DeviceDetailScreen:
         self.device_id: str | None = None
         self.device: dict[str, Any] | None = None
         self.device_state: dict[str, Any] | None = None
+        self.live_state: dict[str, Any] | None = None
+        self.live_state_source: str | None = None
 
     def set_device(self, device_id: str) -> None:
         """Set the device to display.
@@ -51,6 +53,48 @@ class DeviceDetailScreen:
             device_id: Device ID to display
         """
         self.device_id = device_id
+        self.device = None
+        self.device_state = None
+        self.live_state = None
+        self.live_state_source = None
+
+    def apply_live_state_update(self, state: dict[str, Any], source: str = "mqtt") -> None:
+        """Apply real-time state update received from MQTT callbacks.
+
+        Args:
+            state: Incoming live device state payload.
+            source: Event source label (e.g., mqtt_state, sensor_data).
+        """
+        self.live_state = dict(state)
+        self.live_state_source = source
+
+    @staticmethod
+    def _device_field(device: dict[str, Any], *keys: str, default: str = "N/A") -> str:
+        """Return first non-empty string value from preferred device field names."""
+        for key in keys:
+            value = device.get(key)
+            if value is not None and str(value).strip():
+                return str(value)
+        return default
+
+    def _effective_state(self) -> dict[str, Any] | None:
+        """Return merged state where live MQTT values override API values."""
+        if not self.device_state and not self.live_state:
+            return None
+
+        merged: dict[str, Any] = {}
+        if isinstance(self.device_state, dict):
+            merged.update(self.device_state)
+        if isinstance(self.live_state, dict):
+            merged.update(self.live_state)
+        return merged
+
+    def _is_smart_light(self) -> bool:
+        """Return True when selected device is a smart light category."""
+        if not self.device:
+            return False
+        device_type = str(self.device.get("device_type", "")).strip().lower()
+        return device_type in {"smart_light", "light"}
 
     def fetch_device_data(self) -> bool:
         """Fetch device data and state from API.
@@ -66,17 +110,24 @@ class DeviceDetailScreen:
             response = self.http_client.get(f"/api/devices/{self.device_id}")
             response.raise_for_status()
             self.device = response.json()
-
-            # Fetch device state
-            state_response = self.http_client.get(f"/api/devices/{self.device_id}/state")
-            state_response.raise_for_status()
-            self.device_state = state_response.json()
         except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException):
             self.device = None
             self.device_state = None
             return False
-        else:
-            return True
+
+        # Fetch device state as best-effort: detail screen should still render
+        # basic device info when state endpoint is unavailable.
+        self.device_state = None
+        try:
+            state_response = self.http_client.get(f"/api/devices/{self.device_id}/state")
+            state_response.raise_for_status()
+            state_payload = state_response.json()
+            if isinstance(state_payload, dict):
+                self.device_state = state_payload
+        except (httpx.HTTPError, httpx.ConnectError, httpx.TimeoutException, ValueError):
+            self.device_state = None
+
+        return True
 
     def send_command(self, command: str, parameters: dict[str, Any]) -> bool:
         """Send command to device via API.
@@ -124,13 +175,14 @@ class DeviceDetailScreen:
         self.console.print(device_info)
         self.console.print()
 
-        # Device state (if smart light)
-        if success and self.device and self.device.get("device_type") == "smart_light":
+        # Device state
+        if success:
             state_panel = self._render_light_state()
             self.console.print(state_panel)
             self.console.print()
 
-            # Controls
+        # Controls for smart lights
+        if success and self._is_smart_light():
             controls = self._render_light_controls()
             self.console.print(controls)
             self.console.print()
@@ -152,7 +204,7 @@ class DeviceDetailScreen:
         """
         success = self.fetch_device_data()
 
-        if success and self.device and self.device.get("device_type") == "smart_light":
+        if success and self._is_smart_light():
             return Group(
                 self._render_header(),
                 Text(),  # Blank line
@@ -161,6 +213,18 @@ class DeviceDetailScreen:
                 self._render_light_state(),
                 Text(),  # Blank line
                 self._render_light_controls(),
+                Text(),  # Blank line
+                self._render_instructions(),
+                Text(),  # Blank line
+                self._render_menu(),
+            )
+        if success:
+            return Group(
+                self._render_header(),
+                Text(),  # Blank line
+                self._render_device_info(success),
+                Text(),  # Blank line
+                self._render_light_state(),
                 Text(),  # Blank line
                 self._render_instructions(),
                 Text(),  # Blank line
@@ -183,7 +247,10 @@ class DeviceDetailScreen:
         Returns:
             Rich Panel with title
         """
-        device_name = self.device.get("name", "Unknown Device") if self.device else "Device Detail"
+        if self.device:
+            device_name = self._device_field(self.device, "friendly_name", "name")
+        else:
+            device_name = "Device Detail"
         header_text = Text(f"DEVICE: {device_name}", justify="center", style="bold cyan")
         return Panel(
             header_text,
@@ -215,10 +282,10 @@ class DeviceDetailScreen:
         table.add_column("Value", style="bold")
 
         # Device ID
-        table.add_row("Device ID:", str(self.device.get("device_id", "N/A")))
+        table.add_row("Device ID:", self._device_field(self.device, "id", "device_id"))
 
         # Name
-        table.add_row("Name:", str(self.device.get("name", "N/A")))
+        table.add_row("Name:", self._device_field(self.device, "friendly_name", "name"))
 
         # Type
         device_type = str(self.device.get("device_type", "unknown"))
@@ -236,12 +303,15 @@ class DeviceDetailScreen:
         table.add_row("Status:", status_text)
 
         # Location
-        table.add_row("Location:", str(self.device.get("location", "N/A")))
+        table.add_row("Location:", self._device_field(self.device, "location"))
 
         # Last Seen
-        last_seen = self.device.get("last_seen_at")
+        last_seen = self.device.get("last_seen_at") or self.device.get("updated_at")
         last_seen_display = str(last_seen) if last_seen else "Never"
         table.add_row("Last Seen:", last_seen_display)
+
+        if self.live_state_source:
+            table.add_row("State Source:", self.live_state_source)
 
         return Panel(
             table,
@@ -256,10 +326,11 @@ class DeviceDetailScreen:
         Returns:
             Rich Panel with light state
         """
-        if not self.device_state:
+        current_state = self._effective_state()
+        if not current_state:
             return Panel(
                 Text("State unavailable", style="dim"),
-                title="[bold yellow]LIGHT STATE[/bold yellow]",
+                title="[bold yellow]DEVICE STATE[/bold yellow]",
                 title_align="left",
                 border_style="blue",
             )
@@ -269,26 +340,38 @@ class DeviceDetailScreen:
         table.add_column("Value", style="bold")
 
         # Power
-        power = self.device_state.get("power", "unknown")
-        power_text = (
-            Text("ON", style="bold green") if power == "on" else Text("OFF", style="bold red")
-        )
+        power = current_state.get("power")
+        power_is_on = power in {"on", "ON", "true", "True", True}
+        if power is None:
+            power_text = Text("UNKNOWN", style="bold yellow")
+        elif power_is_on:
+            power_text = Text("ON", style="bold green")
+        else:
+            power_text = Text("OFF", style="bold red")
         table.add_row("Power:", power_text)
 
         # Brightness (if available)
-        brightness = self.device_state.get("brightness")
+        brightness = current_state.get("brightness")
         if brightness is not None:
             brightness_bar = self._render_progress_bar(int(brightness), 100)
             table.add_row("Brightness:", brightness_bar)
 
         # Color Temperature (if available)
-        color_temp = self.device_state.get("color_temperature")
+        color_temp = current_state.get("color_temperature")
+        if color_temp is None:
+            color_temp = current_state.get("color_temp")
         if color_temp is not None:
             table.add_row("Color Temp:", f"{color_temp}K")
 
+        # Render any additional state keys not covered by the special rows above.
+        for key in sorted(current_state):
+            if key in {"power", "brightness", "color_temperature", "color_temp"}:
+                continue
+            table.add_row(f"{key}:", str(current_state[key]))
+
         return Panel(
             table,
-            title="[bold yellow]LIGHT STATE[/bold yellow]",
+            title="[bold yellow]DEVICE STATE[/bold yellow]",
             title_align="left",
             border_style="blue",
         )

@@ -47,6 +47,132 @@ class TestDeviceListScreenInitialization:
         assert device_list_screen.devices == []
         assert device_list_screen.filter_type == "all"
         assert device_list_screen.search_query == ""
+        assert device_list_screen.selected_device_id is None
+
+
+class TestSelectionMethods:
+    """Test device selection behavior on filtered lists."""
+
+    def test_get_selected_device_defaults_to_first_visible(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """First filtered device becomes selected when no selection exists."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Light 1", "device_type": "smart_light"},
+            {
+                "id": "sensor_01",
+                "friendly_name": "Sensor 1",
+                "device_type": "temperature_sensor",
+            },
+        ]
+
+        selected = device_list_screen.get_selected_device()
+
+        assert selected is not None
+        assert selected["id"] == "light_01"
+        assert device_list_screen.selected_device_id == "light_01"
+
+    def test_move_selection_wraps_between_items(self, device_list_screen: DeviceListScreen) -> None:
+        """move_selection() advances and wraps in both directions."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Light 1", "device_type": "smart_light"},
+            {"id": "light_02", "friendly_name": "Light 2", "device_type": "smart_light"},
+        ]
+
+        moved = device_list_screen.move_selection(1)
+        assert moved is True
+        assert device_list_screen.selected_device_id == "light_02"
+
+        moved = device_list_screen.move_selection(1)
+        assert moved is True
+        assert device_list_screen.selected_device_id == "light_01"
+
+        moved = device_list_screen.move_selection(-1)
+        assert moved is True
+        assert device_list_screen.selected_device_id == "light_02"
+
+    def test_sync_selection_replaces_stale_selected_id(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """Selection re-anchors to first visible device when selected ID is no longer visible."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Light 1", "device_type": "smart_light"},
+            {"id": "light_02", "friendly_name": "Light 2", "device_type": "smart_light"},
+        ]
+        device_list_screen.selected_device_id = "missing_device"
+
+        selected = device_list_screen.get_selected_device()
+
+        assert selected is not None
+        assert selected["id"] == "light_01"
+        assert device_list_screen.selected_device_id == "light_01"
+
+    def test_get_selected_device_returns_none_when_no_visible_devices(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """get_selected_device() returns None for empty filtered results."""
+        device_list_screen.devices = []
+
+        selected = device_list_screen.get_selected_device()
+
+        assert selected is None
+        assert device_list_screen.selected_device_id is None
+
+    def test_get_selected_device_scans_until_matching_id(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """get_selected_device() continues scanning rows when first row is not selected."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Light 1", "device_type": "smart_light"},
+            {"id": "light_02", "friendly_name": "Light 2", "device_type": "smart_light"},
+        ]
+        device_list_screen.selected_device_id = "light_02"
+
+        selected = device_list_screen.get_selected_device()
+
+        assert selected is not None
+        assert selected["id"] == "light_02"
+
+    def test_get_selected_device_returns_none_when_selection_unmatched(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """get_selected_device() returns None when selection has no matching visible ID."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Light 1", "device_type": "smart_light"},
+        ]
+        device_list_screen.selected_device_id = "missing_device"
+
+        with patch.object(device_list_screen, "_sync_selection", return_value=None):
+            selected = device_list_screen.get_selected_device()
+
+        assert selected is None
+
+    def test_move_selection_returns_false_when_no_visible_devices(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """move_selection() is a no-op when filtered result is empty."""
+        device_list_screen.devices = []
+
+        moved = device_list_screen.move_selection(1)
+
+        assert moved is False
+
+    def test_move_selection_uses_default_index_when_selected_not_visible(
+        self, device_list_screen: DeviceListScreen
+    ) -> None:
+        """move_selection() starts from index 0 when selected ID is not in visible results."""
+        device_list_screen.devices = [
+            {"id": "light_01", "friendly_name": "Light 1", "device_type": "smart_light"},
+            {"id": "light_02", "friendly_name": "Light 2", "device_type": "smart_light"},
+        ]
+        device_list_screen.selected_device_id = "missing_device"
+
+        # Freeze selection sync so move_selection exercises missing-selection fallback path.
+        with patch.object(device_list_screen, "_sync_selection", return_value=None):
+            moved = device_list_screen.move_selection(1)
+
+        assert moved is True
+        assert device_list_screen.selected_device_id == "light_02"
 
 
 class TestFetchDevices:

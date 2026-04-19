@@ -13,6 +13,13 @@ from rich.text import Text
 from backend.tui.screens.device_detail import DeviceDetailScreen
 
 
+def _panel_text(panel: Panel) -> str:
+    """Render a panel to plain text for stable content assertions."""
+    console = Console(record=True, width=140)
+    console.print(panel)
+    return console.export_text()
+
+
 @pytest.fixture
 def mock_console() -> MagicMock:
     """Create mock Console for testing."""
@@ -48,6 +55,8 @@ class TestDeviceDetailScreenInitialization:
         assert device_detail_screen.device_id is None
         assert device_detail_screen.device is None
         assert device_detail_screen.device_state is None
+        assert device_detail_screen.live_state is None
+        assert device_detail_screen.live_state_source is None
 
 
 class TestSetDevice:
@@ -57,6 +66,62 @@ class TestSetDevice:
         """Test setting the device ID."""
         device_detail_screen.set_device("light_01")
         assert device_detail_screen.device_id == "light_01"
+
+    def test_set_device_resets_cached_state(self, device_detail_screen: DeviceDetailScreen) -> None:
+        """set_device() clears stale API/live state when selecting a new device."""
+        device_detail_screen.device = {"id": "old"}
+        device_detail_screen.device_state = {"power": "off"}
+        device_detail_screen.live_state = {"power": True}
+        device_detail_screen.live_state_source = "mqtt_state"
+
+        device_detail_screen.set_device("new_device")
+
+        assert device_detail_screen.device_id == "new_device"
+        assert device_detail_screen.device is None
+        assert device_detail_screen.device_state is None
+        assert device_detail_screen.live_state is None
+        assert device_detail_screen.live_state_source is None
+
+
+class TestLiveStateUpdates:
+    """Test real-time state update handling."""
+
+    def test_apply_live_state_update_sets_state_and_source(
+        self, device_detail_screen: DeviceDetailScreen
+    ) -> None:
+        """apply_live_state_update() stores payload and source."""
+        device_detail_screen.apply_live_state_update({"power": True}, source="mqtt_state")
+
+        assert device_detail_screen.live_state == {"power": True}
+        assert device_detail_screen.live_state_source == "mqtt_state"
+
+    def test_effective_state_prefers_live_values(
+        self, device_detail_screen: DeviceDetailScreen
+    ) -> None:
+        """Live values override API state when both are present."""
+        device_detail_screen.device_state = {"power": "off", "brightness": 50}
+        device_detail_screen.apply_live_state_update({"power": True})
+
+        effective = device_detail_screen._effective_state()
+
+        assert effective == {"power": True, "brightness": 50}
+
+    def test_effective_state_ignores_non_dict_device_state(
+        self, device_detail_screen: DeviceDetailScreen
+    ) -> None:
+        """Non-dict API state is ignored while dict live state is still used."""
+        device_detail_screen.device_state = "invalid"  # type: ignore[assignment]
+        device_detail_screen.apply_live_state_update({"power": "on"})
+
+        effective = device_detail_screen._effective_state()
+
+        assert effective == {"power": "on"}
+
+    def test_is_smart_light_returns_false_without_device(
+        self, device_detail_screen: DeviceDetailScreen
+    ) -> None:
+        """_is_smart_light() is False when no device has been loaded yet."""
+        assert device_detail_screen._is_smart_light() is False
 
 
 class TestFetchDeviceData:
@@ -123,6 +188,37 @@ class TestFetchDeviceData:
         assert success is False
         assert device_detail_screen.device is None
         assert device_detail_screen.device_state is None
+
+    def test_fetch_device_data_state_404_still_returns_device(
+        self, device_detail_screen: DeviceDetailScreen, mock_http_client: MagicMock
+    ) -> None:
+        """State endpoint 404 should not block device detail rendering."""
+        device_detail_screen.set_device("temp-001")
+
+        mock_device_response = MagicMock()
+        mock_device_response.json.return_value = {
+            "id": "temp-001",
+            "friendly_name": "Living Room Temp",
+            "device_type": "temperature_sensor",
+            "status": "online",
+        }
+
+        mock_state_response = MagicMock()
+        mock_state_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Not Found",
+            request=MagicMock(),
+            response=MagicMock(status_code=404),
+        )
+
+        mock_http_client.get.side_effect = [mock_device_response, mock_state_response]
+
+        success = device_detail_screen.fetch_device_data()
+
+        assert success is True
+        assert device_detail_screen.device is not None
+        assert device_detail_screen.device["id"] == "temp-001"
+        assert device_detail_screen.device_state is None
+        assert mock_http_client.get.call_count == 2
 
 
 class TestSendCommand:
@@ -229,6 +325,26 @@ class TestRenderMethods:
         info_panel = device_detail_screen._render_device_info(api_success=True)
         assert isinstance(info_panel, Panel)
 
+    def test_render_device_info_includes_state_source_row(
+        self, device_detail_screen: DeviceDetailScreen
+    ) -> None:
+        """_render_device_info() shows state source when live updates are active."""
+        device_detail_screen.device = {
+            "id": "light_03",
+            "friendly_name": "Kitchen Light",
+            "device_type": "smart_light",
+            "status": "online",
+            "location": "Kitchen",
+            "updated_at": "2026-02-26 12:30:45",
+        }
+        device_detail_screen.live_state_source = "sensor_data"
+
+        info_panel = device_detail_screen._render_device_info(api_success=True)
+        rendered = _panel_text(info_panel)
+
+        assert "State Source:" in rendered
+        assert "sensor_data" in rendered
+
     def test_render_light_state_with_data(self, device_detail_screen: DeviceDetailScreen) -> None:
         """Test _render_light_state with device state data."""
         device_detail_screen.device_state = {
@@ -254,6 +370,33 @@ class TestRenderMethods:
         }
         state_panel = device_detail_screen._render_light_state()
         assert isinstance(state_panel, Panel)
+
+    def test_render_light_state_defaults_power_to_unknown(
+        self, device_detail_screen: DeviceDetailScreen
+    ) -> None:
+        """_render_light_state() shows UNKNOWN power when state lacks power key."""
+        device_detail_screen.device_state = {"brightness": 20}
+
+        state_panel = device_detail_screen._render_light_state()
+        rendered = _panel_text(state_panel)
+
+        assert "UNKNOWN" in rendered
+
+    def test_render_light_state_includes_additional_state_keys(
+        self, device_detail_screen: DeviceDetailScreen
+    ) -> None:
+        """_render_light_state() includes extra non-standard keys in the table."""
+        device_detail_screen.device_state = {
+            "power": "on",
+            "brightness": 75,
+            "battery": 88,
+        }
+
+        state_panel = device_detail_screen._render_light_state()
+        rendered = _panel_text(state_panel)
+
+        assert "battery:" in rendered
+        assert "88" in rendered
 
     def test_render_light_controls(self, device_detail_screen: DeviceDetailScreen) -> None:
         """Test _render_light_controls returns Panel."""
@@ -419,4 +562,20 @@ class TestRender:
         device_detail_screen.render()
 
         # Assert console.print was called
+        assert mock_console.print.call_count >= 5
+
+    def test_render_handles_api_error_without_state_or_controls(
+        self,
+        device_detail_screen: DeviceDetailScreen,
+        mock_console: MagicMock,
+        mock_http_client: MagicMock,
+    ) -> None:
+        """render() still shows layout when API fetch fails."""
+        device_detail_screen.set_device("light_01")
+        mock_http_client.get.side_effect = httpx.RequestError(
+            "Connection error", request=MagicMock()
+        )
+
+        device_detail_screen.render()
+
         assert mock_console.print.call_count >= 5
