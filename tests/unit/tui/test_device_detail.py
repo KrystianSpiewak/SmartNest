@@ -220,6 +220,33 @@ class TestFetchDeviceData:
         assert device_detail_screen.device_state is None
         assert mock_http_client.get.call_count == 2
 
+    def test_fetch_device_data_ignores_non_dict_state_payload(
+        self, device_detail_screen: DeviceDetailScreen, mock_http_client: MagicMock
+    ) -> None:
+        """Non-dict state JSON should be ignored while device info still loads."""
+        device_detail_screen.set_device("temp-001")
+
+        mock_device_response = MagicMock()
+        mock_device_response.json.return_value = {
+            "id": "temp-001",
+            "friendly_name": "Living Room Temp",
+            "device_type": "temperature_sensor",
+            "status": "online",
+        }
+
+        mock_state_response = MagicMock()
+        mock_state_response.json.return_value = ["unexpected", "list"]
+
+        mock_http_client.get.side_effect = [mock_device_response, mock_state_response]
+
+        success = device_detail_screen.fetch_device_data()
+
+        assert success is True
+        assert device_detail_screen.device is not None
+        assert device_detail_screen.device["id"] == "temp-001"
+        assert device_detail_screen.device_state is None
+        assert mock_http_client.get.call_count == 2
+
 
 class TestSendCommand:
     """Test send_command method."""
